@@ -1,4 +1,8 @@
 **Add your own guidelines here**
+Rules dalam pembangunan proyek game web online ku
+1. Selalu buat dengan font style konsisten tema kerajaan fantasy sword and magic melawan iblis era medieval
+2. selalu buat web dengan model modern dinamis dan dengan animasi agar website game ku nampak hidup
+3. selalu gunakan ilustrasi yang sesuai dengan tema di atas, kerajaan fantasy medieval
 <!--
 
 System Guidelines

@@ -1,10 +1,26 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { Swords, Shield, Skull, Crown, Sparkles } from 'lucide-react';
 import { ImageWithFallback } from '../components/figma/ImageWithFallback';
+import { getSupabaseClient } from '../../utils/supabase-client';
 
 export default function LandingPage() {
   const navigate = useNavigate();
+
+  useEffect(() => {
+    // Check if user already logged in
+    const checkSession = async () => {
+      const supabase = getSupabaseClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session) {
+        console.log('[LandingPage] Active session found, redirecting to game...');
+        navigate('/game/village');
+      }
+    };
+
+    checkSession();
+  }, [navigate]);
 
   return (
     <div className="min-h-screen bg-black text-white overflow-hidden">
