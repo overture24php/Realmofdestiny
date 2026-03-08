@@ -5,8 +5,7 @@ import { Heart, HeartPulse, CheckCircle, Sparkles, ArrowLeft, Zap, Droplets } fr
 import { useGame } from '../contexts/GameContext';
 import { calcDerived } from '../data/statsCalc';
 import { ImageWithFallback } from '../components/figma/ImageWithFallback';
-import maleImg   from 'figma:asset/0d288298f55234e645afbd915a4e01469027b0fa.png';
-import femaleImg from 'figma:asset/998d51489ca786ac6d73a705dcfca0031ec6408c.png';
+import { maleImg, femaleImg } from '../data/imageAssets';
 
 import { MenuAccordion, AccordionItem } from '../components/MenuAccordion';
 

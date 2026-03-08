@@ -6,7 +6,7 @@ import { useGame } from '../../contexts/GameContext';
 import { getLocation, getNeighborId, DIR_META } from '../../data/worldMapData';
 import { WalkingTransitionOverlay } from './WalkingTransitionOverlay';
 import type { WorldLocation } from '../../data/worldMapData';
-import mapImg from 'figma:asset/76192ffe5cc08b1ad78be5c314ff2153fbc28d6d.png';
+import { mapImg } from '../../data/imageAssets';
 
 // ─── Derive current location ID from player data + route ─────────────────────
 

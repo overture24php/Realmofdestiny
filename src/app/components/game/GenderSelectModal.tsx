@@ -1,8 +1,6 @@
 import { useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import maleImg   from 'figma:asset/0d288298f55234e645afbd915a4e01469027b0fa.png';
-import femaleImg from 'figma:asset/998d51489ca786ac6d73a705dcfca0031ec6408c.png';
-import bodyImg   from 'figma:asset/4770ca651dd0578f6de1ef6c86f54909197d45cb.png';
+import { maleImg, femaleImg, bodyImg } from '../../data/imageAssets';
 import type { ElementType } from '../../contexts/GameContext';
 
 // ── Element + Non-Element definitions ─────────────────────────────────────────
@@ -334,7 +332,7 @@ function StepGender({ onConfirm }: { onConfirm: (g: 'male' | 'female') => void }
   );
 }
 
-// ── Cube animation variants ───────────────────────────────────────────────────
+// ── Cube animation variants ─��─────────────────────────────────────────────────
 
 const cubeVariants = {
   enter: (dir: number) => ({

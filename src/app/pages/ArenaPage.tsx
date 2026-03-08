@@ -37,10 +37,7 @@ import {
   type ProcessTurnResult, type ServerBuff,
 } from '../../utils/supabase-db';
 
-import dummyImg  from 'figma:asset/cd9c513007b72d47084accd15367a503756e3ee7.png';
-import maleImg   from 'figma:asset/0d288298f55234e645afbd915a4e01469027b0fa.png';
-import femaleImg from 'figma:asset/998d51489ca786ac6d73a705dcfca0031ec6408c.png';
-import guardImg  from 'figma:asset/b078d521c445963cc1f073892adb83151acddc7a.png';
+import { dummyImg, maleImg, femaleImg, guardImg } from '../data/imageAssets';
 
 // ── Local Enemy Definitions ────────────────────────────────────────────────────
 

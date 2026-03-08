@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router';
 import { useGame } from '../contexts/GameContext';
 import { ArrowLeft, Heart } from 'lucide-react';
 import { ImageWithFallback } from '../components/figma/ImageWithFallback';
-import meditationFigureImg from 'figma:asset/ae028ba374b625e5980bb19e67f15716582dc9ed.png';
+import { meditationFigureImg } from '../data/imageAssets';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
