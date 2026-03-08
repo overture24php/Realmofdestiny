@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { WorldLocation } from '../../data/worldMapData';
+import mapImg from 'figma:asset/76192ffe5cc08b1ad78be5c314ff2153fbc28d6d.png';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -152,12 +153,20 @@ export function WalkingTransitionOverlay({ isActive, destination }: Props) {
         <motion.div
           key="walk-overlay"
           className="fixed inset-0 flex items-center justify-center"
-          style={{ zIndex: 9999, background: 'rgba(2,2,12,0.93)', backdropFilter: 'blur(14px)' }}
+          style={{ zIndex: 9999 }}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.35 }}
         >
+          {/* World Map as full background */}
+          <div className="absolute inset-0">
+            <img src={mapImg} alt="World Map" style={{ width:'100%', height:'100%', objectFit:'cover', objectPosition:'center' }} />
+            <div className="absolute inset-0" style={{ background:'rgba(2,2,12,0.72)', backdropFilter:'blur(2px)' }} />
+            {/* Vignette */}
+            <div className="absolute inset-0" style={{ background:'radial-gradient(ellipse at center, transparent 30%, rgba(0,0,0,0.65) 100%)' }} />
+          </div>
+
           {/* Ambient glow behind card */}
           <motion.div
             className="absolute inset-0 pointer-events-none"
@@ -171,26 +180,10 @@ export function WalkingTransitionOverlay({ isActive, destination }: Props) {
             <motion.div
               key={i}
               className="absolute pointer-events-none text-sm select-none"
-              style={{
-                left:  `${10 + (i * 11.5) % 80}%`,
-                top:   `${15 + (i * 13.7) % 70}%`,
-                color: accent + '70',
-                fontSize: 8 + (i % 3) * 4,
-              }}
-              animate={{
-                y:       [0, -18, 0],
-                opacity: [0.2, 0.7, 0.2],
-                scale:   [0.8, 1.2, 0.8],
-              }}
-              transition={{
-                duration: 2 + (i % 3),
-                delay:    i * 0.4,
-                repeat:   Infinity,
-                ease:     'easeInOut',
-              }}
-            >
-              ✦
-            </motion.div>
+              style={{ left:`${10 + (i * 11.5) % 80}%`, top:`${15 + (i * 13.7) % 70}%`, color: accent + '70', fontSize: 8 + (i % 3) * 4 }}
+              animate={{ y:[0,-18,0], opacity:[0.2,0.7,0.2], scale:[0.8,1.2,0.8] }}
+              transition={{ duration:2+(i%3), delay:i*0.4, repeat:Infinity, ease:'easeInOut' }}
+            >✦</motion.div>
           ))}
 
           {/* ── Main Card ── */}
@@ -199,9 +192,10 @@ export function WalkingTransitionOverlay({ isActive, destination }: Props) {
             className="relative w-full mx-4 rounded-2xl border-2 overflow-hidden"
             style={{
               maxWidth: 680,
-              background: 'linear-gradient(160deg, rgba(4,4,18,0.99) 0%, rgba(8,6,22,0.99) 100%)',
+              background: 'linear-gradient(160deg, rgba(4,4,18,0.92) 0%, rgba(8,6,22,0.94) 100%)',
+              backdropFilter: 'blur(12px)',
               borderColor: accent + '55',
-              boxShadow:   `0 0 60px ${accent}18, 0 24px 80px rgba(0,0,0,0.85), inset 0 1px 0 ${accent}20`,
+              boxShadow: `0 0 60px ${accent}18, 0 24px 80px rgba(0,0,0,0.85), inset 0 1px 0 ${accent}20`,
             }}
             initial={{ scale: 0.9, opacity: 0, y: 28 }}
             animate={{ scale: 1,   opacity: 1, y: 0  }}
@@ -209,14 +203,9 @@ export function WalkingTransitionOverlay({ isActive, destination }: Props) {
             transition={{ duration: 0.4, ease: 'easeOut' }}
           >
             {/* Moving shimmer */}
-            <motion.div
-              className="absolute inset-0 pointer-events-none"
-              style={{
-                background: `linear-gradient(105deg, transparent 38%, ${accent}12 50%, transparent 62%)`,
-                opacity: 0.8,
-              }}
-              animate={{ x: ['-110%', '210%'] }}
-              transition={{ duration: 2.8, repeat: Infinity, ease: 'linear', repeatDelay: 2.5 }}
+            <motion.div className="absolute inset-0 pointer-events-none"
+              style={{ background:`linear-gradient(105deg, transparent 38%, ${accent}12 50%, transparent 62%)`, opacity:0.8 }}
+              animate={{ x:['-110%','210%'] }} transition={{ duration:2.8, repeat:Infinity, ease:'linear', repeatDelay:2.5 }}
             />
 
             {/* Corner brackets */}
@@ -226,174 +215,80 @@ export function WalkingTransitionOverlay({ isActive, destination }: Props) {
             <div className="absolute bottom-3 right-3"><CornerBracket pos="br" accent={accent} /></div>
 
             <div className="relative p-7 pb-6">
-
               {/* ── Header ── */}
               <div className="text-center mb-5">
-                <motion.div
-                  className="flex items-center justify-center gap-3 mb-3"
-                  animate={{ opacity: [0.7, 1, 0.7] }}
-                  transition={{ duration: 1.8, repeat: Infinity }}
-                >
-                  <div className="h-px flex-1 max-w-24"
-                    style={{ background: `linear-gradient(to right, transparent, ${accent}60)` }} />
-                  <span className="text-[11px] tracking-[0.5em] uppercase font-bold"
-                    style={{ color: accent }}>
-                    ⚔ Sedang Berjalan ⚔
-                  </span>
-                  <div className="h-px flex-1 max-w-24"
-                    style={{ background: `linear-gradient(to left, transparent, ${accent}60)` }} />
+                <motion.div className="flex items-center justify-center gap-3 mb-3"
+                  animate={{ opacity:[0.7,1,0.7] }} transition={{ duration:1.8, repeat:Infinity }}>
+                  <div className="h-px flex-1 max-w-24" style={{ background:`linear-gradient(to right, transparent, ${accent}60)` }} />
+                  <span className="text-[11px] tracking-[0.5em] uppercase font-bold" style={{ color:accent }}>⚔ Sedang Berjalan ⚔</span>
+                  <div className="h-px flex-1 max-w-24" style={{ background:`linear-gradient(to left, transparent, ${accent}60)` }} />
                 </motion.div>
 
-                <h2
-                  className="text-3xl font-black mb-2"
-                  style={{
-                    backgroundImage: `linear-gradient(180deg, #fff 0%, ${accent} 60%)`,
-                    WebkitBackgroundClip: 'text',
-                    WebkitTextFillColor: 'transparent',
-                    backgroundClip: 'text',
-                    display: 'inline-block',
-                    filter: `drop-shadow(0 0 16px ${accent}60)`,
-                  }}
-                >
+                <h2 className="text-3xl font-black mb-2" style={{
+                  backgroundImage:`linear-gradient(180deg, #fff 0%, ${accent} 60%)`,
+                  WebkitBackgroundClip:'text', WebkitTextFillColor:'transparent', backgroundClip:'text',
+                  display:'inline-block', filter:`drop-shadow(0 0 16px ${accent}60)`,
+                }}>
                   Menuju {destination.name}
                 </h2>
 
                 <div className="flex items-center justify-center gap-2 mt-1">
-                  <span
-                    className="text-[11px] px-3 py-1 rounded-full border font-semibold"
-                    style={{ borderColor: accent + '40', color: accent, background: accent + '12' }}
-                  >
+                  <span className="text-[11px] px-3 py-1 rounded-full border font-semibold"
+                    style={{ borderColor:accent+'40', color:accent, background:accent+'12' }}>
                     {destination.zone.replace('_', ' ').toUpperCase()}
                   </span>
                   <span className="text-xs text-gray-500">{destination.levelRange}</span>
                 </div>
               </div>
 
-              {/* ── Footstep Trail Strip ── */}
-              <div
-                className="relative rounded-xl mb-4 overflow-hidden"
-                style={{
-                  height: 110,
-                  background: `linear-gradient(180deg, rgba(0,0,0,0.5) 0%, ${accent}06 50%, rgba(0,0,0,0.5) 100%)`,
-                  border:     `1px solid ${accent}22`,
-                }}
-              >
+              {/* ── Footstep Trail Strip — map themed ── */}
+              <div className="relative rounded-xl mb-4 overflow-hidden" style={{ height:110 }}>
+                {/* Mini world map thumbnail inside the strip */}
+                <img src={mapImg} alt="map" style={{ position:'absolute', inset:0, width:'100%', height:'100%', objectFit:'cover', objectPosition:'center', opacity:0.18 }} />
+                <div className="absolute inset-0" style={{ background:`linear-gradient(180deg, rgba(0,0,0,0.5) 0%, ${accent}06 50%, rgba(0,0,0,0.5) 100%)`, border:`1px solid ${accent}22` }} />
+
                 {/* Ground path line */}
-                <div
-                  className="absolute left-0 right-0"
-                  style={{
-                    top:        '50%',
-                    height:     2,
-                    background: `linear-gradient(to right, transparent 2%, ${accent}25 20%, ${accent}25 80%, transparent 98%)`,
-                  }}
-                />
+                <div className="absolute left-0 right-0" style={{ top:'50%', height:2, background:`linear-gradient(to right, transparent 2%, ${accent}25 20%, ${accent}25 80%, transparent 98%)` }} />
 
                 {/* Path texture dots */}
                 {Array.from({ length: 24 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="absolute rounded-full"
-                    style={{
-                      left:      `${4 + i * 4}%`,
-                      top:       '50%',
-                      transform: 'translateY(-50%)',
-                      width:     2,
-                      height:    2,
-                      background: accent + '18',
-                    }}
-                  />
+                  <div key={i} className="absolute rounded-full"
+                    style={{ left:`${4+i*4}%`, top:'50%', transform:'translateY(-50%)', width:2, height:2, background:accent+'18' }} />
                 ))}
 
                 {/* Empty footprint slot guides */}
-                {STEP_PATH.map((step) => (
-                  <div
-                    key={`slot-${step.id}`}
-                    className="absolute rounded"
-                    style={{
-                      left:      `${step.xPct}%`,
-                      top:       `${step.yPct}%`,
-                      width:     22,
-                      height:    30,
-                      transform: 'translateX(-50%)',
-                      border:    `1px dashed ${accent}0e`,
-                    }}
-                  />
+                {STEP_PATH.map(step => (
+                  <div key={`slot-${step.id}`} className="absolute rounded"
+                    style={{ left:`${step.xPct}%`, top:`${step.yPct}%`, width:22, height:30, transform:'translateX(-50%)', border:`1px dashed ${accent}0e` }} />
                 ))}
 
-                {/* ── Footprints (accumulate; don't disappear) ── */}
-                {STEP_PATH.slice(0, visibleCount).map((step) => (
-                  <motion.div
-                    key={`foot-${step.id}`}
-                    className="absolute"
-                    style={{
-                      left:      `${step.xPct}%`,
-                      top:       `${step.yPct}%`,
-                      transform: 'translateX(-50%)',
-                    }}
-                    initial={{ opacity: 0, scale: 0, rotate: step.isLeft ? -20 : 20 }}
-                    animate={{ opacity: 1, scale: 1,  rotate: 0 }}
-                    transition={{
-                      duration: 0.28,
-                      ease:     [0.34, 1.56, 0.64, 1], // spring-like overshoot
-                    }}
-                  >
-                    {/* Stamp ring flash */}
-                    <motion.div
-                      className="absolute inset-0 rounded-sm"
-                      style={{
-                        left:   '-30%',
-                        top:    '-20%',
-                        width:  '160%',
-                        height: '140%',
-                        border: `1.5px solid ${accent}`,
-                      }}
-                      initial={{ opacity: 0.9, scale: 0.5 }}
-                      animate={{ opacity: 0,   scale: 2   }}
-                      transition={{ duration: 0.45, ease: 'easeOut' }}
-                    />
+                {/* ── Footprints ── */}
+                {STEP_PATH.slice(0, visibleCount).map(step => (
+                  <motion.div key={`foot-${step.id}`} className="absolute"
+                    style={{ left:`${step.xPct}%`, top:`${step.yPct}%`, transform:'translateX(-50%)' }}
+                    initial={{ opacity:0, scale:0, rotate: step.isLeft ? -20 : 20 }}
+                    animate={{ opacity:1, scale:1, rotate:0 }}
+                    transition={{ duration:0.28, ease:[0.34,1.56,0.64,1] }}>
+                    <motion.div className="absolute inset-0 rounded-sm"
+                      style={{ left:'-30%', top:'-20%', width:'160%', height:'140%', border:`1.5px solid ${accent}` }}
+                      initial={{ opacity:0.9, scale:0.5 }} animate={{ opacity:0, scale:2 }}
+                      transition={{ duration:0.45, ease:'easeOut' }} />
                     <Footprint isLeft={step.isLeft} color={accent} />
                   </motion.div>
                 ))}
-
-                {/* ── Walking character (leads the footsteps) ── */}
-                <motion.div
-                  className="absolute select-none pointer-events-none"
-                  style={{
-                    left:      `${walkerXPct}%`,
-                    top:       '15%',
-                    fontSize:  28,
-                    transform: 'translateX(-50%)',
-                  }}
-                  animate={{
-                    y:     [0, -5, 0, -4, 0],
-                    scale: [1, 1.05, 1, 1.02, 1],
-                  }}
-                  transition={{
-                    duration: 0.5,
-                    repeat:   Infinity,
-                    ease:     'easeInOut',
-                  }}
-                >
-                  🚶
-                </motion.div>
+                {/* No walking person icon — removed per design */}
               </div>
 
               {/* ── Step counter + flavor text ── */}
               <div className="flex items-center justify-between mb-4 min-h-[20px]">
                 <AnimatePresence mode="wait">
-                  <motion.p
-                    key={phraseIdx}
-                    className="text-xs text-gray-400 italic"
-                    initial={{ opacity: 0, x: -8 }}
-                    animate={{ opacity: 1, x: 0  }}
-                    exit={{    opacity: 0, x:  8  }}
-                    transition={{ duration: 0.3 }}
-                  >
+                  <motion.p key={phraseIdx} className="text-xs text-gray-400 italic"
+                    initial={{ opacity:0, x:-8 }} animate={{ opacity:1, x:0 }} exit={{ opacity:0, x:8 }}
+                    transition={{ duration:0.3 }}>
                     {WALK_PHRASES[phraseIdx]}
                   </motion.p>
                 </AnimatePresence>
-                <span className="text-xs font-semibold flex-shrink-0 ml-3"
-                  style={{ color: accent }}>
+                <span className="text-xs font-semibold flex-shrink-0 ml-3" style={{ color:accent }}>
                   {visibleCount} langkah
                 </span>
               </div>
@@ -401,52 +296,25 @@ export function WalkingTransitionOverlay({ isActive, destination }: Props) {
               {/* ── Progress bar ── */}
               <div className="mb-3">
                 <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[10px] uppercase tracking-wider text-gray-600">
-                    Jarak Perjalanan
-                  </span>
-                  <motion.span
-                    className="text-xs font-bold"
-                    style={{ color: accent }}
-                    animate={{ opacity: remainingSecs <= 3 ? [1, 0.5, 1] : 1 }}
-                    transition={{ duration: 0.6, repeat: remainingSecs <= 3 ? Infinity : 0 }}
-                  >
+                  <span className="text-[10px] uppercase tracking-wider text-gray-600">Jarak Perjalanan</span>
+                  <motion.span className="text-xs font-bold" style={{ color:accent }}
+                    animate={{ opacity: remainingSecs <= 3 ? [1,0.5,1] : 1 }}
+                    transition={{ duration:0.6, repeat: remainingSecs <= 3 ? Infinity : 0 }}>
                     {remainingSecs === 0 ? '✦ Tiba!' : `Tiba dalam ${remainingSecs} detik`}
                   </motion.span>
                 </div>
-
-                {/* Track */}
-                <div
-                  className="h-2.5 rounded-full overflow-hidden"
-                  style={{ background: 'rgba(255,255,255,0.05)', border: `1px solid ${accent}20` }}
-                >
-                  <motion.div
-                    className="h-full rounded-full"
-                    style={{
-                      background:  `linear-gradient(90deg, ${accent}70, ${accent})`,
-                      boxShadow:   `0 0 10px ${accent}70`,
-                      width:       `${progressPct}%`,
-                    }}
-                  />
+                <div className="h-2.5 rounded-full overflow-hidden" style={{ background:'rgba(255,255,255,0.05)', border:`1px solid ${accent}20` }}>
+                  <motion.div className="h-full rounded-full"
+                    style={{ background:`linear-gradient(90deg, ${accent}70, ${accent})`, boxShadow:`0 0 10px ${accent}70`, width:`${progressPct}%` }} />
                 </div>
-
-                {/* Walker icon on bar */}
                 <div className="relative h-3 mt-0.5">
-                  <motion.span
-                    className="absolute text-xs -top-1"
-                    style={{ left: `calc(${progressPct}% - 8px)` }}
-                  >
-                    🦶
-                  </motion.span>
+                  <motion.span className="absolute text-xs -top-1" style={{ left:`calc(${progressPct}% - 8px)` }}>🦶</motion.span>
                 </div>
               </div>
 
               {/* ── Bottom tagline ── */}
-              <motion.p
-                className="text-center text-[10px] tracking-[0.4em] uppercase mt-2"
-                style={{ color: accent + '55' }}
-                animate={{ opacity: [0.4, 0.8, 0.4] }}
-                transition={{ duration: 2.5, repeat: Infinity }}
-              >
+              <motion.p className="text-center text-[10px] tracking-[0.4em] uppercase mt-2" style={{ color:accent+'55' }}
+                animate={{ opacity:[0.4,0.8,0.4] }} transition={{ duration:2.5, repeat:Infinity }}>
                 ✦ Realm of Destiny — Dunia yang Luas Menantimu ✦
               </motion.p>
             </div>

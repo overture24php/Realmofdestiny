@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
-import { MapPin, X, Compass } from 'lucide-react';
+import { MapPin, X, Compass, Lock } from 'lucide-react';
 import { useGame } from '../../contexts/GameContext';
 import { getLocation, getNeighborId, DIR_META } from '../../data/worldMapData';
 import { WalkingTransitionOverlay } from './WalkingTransitionOverlay';
 import type { WorldLocation } from '../../data/worldMapData';
+import mapImg from 'figma:asset/76192ffe5cc08b1ad78be5c314ff2153fbc28d6d.png';
 
 // ─── Derive current location ID from player data + route ─────────────────────
 
@@ -80,11 +81,30 @@ export function MapFloatingButton() {
   const [open,        setOpen]        = useState(false);
   const [traveling,   setTraveling]   = useState(false);
   const [destination, setDestination] = useState<WorldLocation | null>(null);
+  const [lockTooltip, setLockTooltip] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
+  const lockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const navigate = useNavigate();
-  const { updatePlayer } = useGame();
+  const { player, updatePlayer } = useGame();
   const currentId = useCurrentLocationId();
   const current   = getLocation(currentId);
+
+  // Tutorial gate — block map access until tutorial is complete
+  const tutorialDone = player?.tutorialProgress?.completed ?? false;
+
+  // Healing gate — block map when HP < 1 (player is being healed at clinic)
+  const isHealing = (player?.stats?.hp ?? 1) < 1;
+
+  const handleLockedClick = () => {
+    if (lockTooltip) return;
+    setLockTooltip(true);
+    if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
+    lockTimerRef.current = setTimeout(() => setLockTooltip(false), 2800);
+  };
+
+  useEffect(() => () => {
+    if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
+  }, []);
 
   // Close panel on outside click
   useEffect(() => {
@@ -130,6 +150,209 @@ export function MapFloatingButton() {
 
   const accent = current?.accentColor ?? '#a78bfa';
 
+  // ── LOCKED STATE (tutorial not finished) ───────────────────────────────────
+  if (!tutorialDone) {
+    return (
+      <div className="fixed bottom-6 right-6 z-50" onClick={handleLockedClick}>
+        {/* Lock tooltip */}
+        <AnimatePresence>
+          {lockTooltip && (
+            <motion.div
+              initial={{ opacity: 0, y: 8, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 8, scale: 0.9 }}
+              transition={{ duration: 0.2 }}
+              className="absolute bottom-[76px] right-0 w-60 rounded-2xl border overflow-hidden shadow-2xl"
+              style={{
+                background: 'rgba(5,5,15,0.95)',
+                backdropFilter: 'blur(20px)',
+                borderColor: '#7c3aed55',
+                boxShadow: '0 8px 40px rgba(0,0,0,0.8), 0 0 30px #7c3aed20',
+              }}
+            >
+              {/* Glow top bar */}
+              <div style={{ height: 2, background: 'linear-gradient(90deg, transparent, #7c3aed, #ec4899, #7c3aed, transparent)' }} />
+              <div className="p-4 text-center">
+                <motion.div
+                  className="text-3xl mb-2"
+                  animate={{ rotate: [-5, 5, -5] }}
+                  transition={{ duration: 0.4, repeat: 3 }}
+                >
+                  🔒
+                </motion.div>
+                <p style={{ fontFamily: 'serif', fontWeight: 900, fontSize: '0.8rem', color: '#c084fc', letterSpacing: '0.08em', marginBottom: 6 }}>
+                  Peta Dunia Terkunci
+                </p>
+                <p style={{ fontSize: '0.7rem', color: '#6b7280', lineHeight: 1.5 }}>
+                  Selesaikan tutorial dari{' '}
+                  <span style={{ color: '#a78bfa', fontWeight: 700 }}>Kepala Desa</span>{' '}
+                  terlebih dahulu untuk menjelajah dunia.
+                </p>
+                {/* Tutorial checklist mini */}
+                {player && (
+                  <div className="mt-3 space-y-1.5 text-left">
+                    {[
+                      { done: player.tutorialProgress?.gotWeapon,                               label: 'Misi 1: Ambil senjata dari Pandai Besi' },
+                      { done: (player.tutorialProgress?.defeatedDummies ?? 0) >= 3,              label: 'Misi 2: Kalahkan 3 Boneka Kayu' },
+                      { done: (player.tutorialProgress?.defeatedGuards  ?? 0) >= 5,              label: 'Misi 3: Kalahkan 5 Penjaga Pemula' },
+                      { done: player.tutorialProgress?.meditated,                               label: 'Misi 4: Meditasi di Kuil (+10 HP)' },
+                      { done: player.tutorialProgress?.reachedLevel5 || (player.level ?? 1) >= 5, label: 'Misi 5: Capai Level 5' },
+                    ].map((t, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <div
+                          className="flex-shrink-0 rounded-full flex items-center justify-center"
+                          style={{ width: 14, height: 14, background: t.done ? '#15803d' : 'transparent', border: `1.5px solid ${t.done ? '#22c55e' : '#374151'}` }}
+                        >
+                          {t.done && <span style={{ fontSize: '0.5rem', color: '#fff' }}>✓</span>}
+                        </div>
+                        <span style={{ fontSize: '0.62rem', color: t.done ? '#4ade80' : '#4b5563' }}>
+                          {t.label}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Locked floating button */}
+        <motion.div
+          className="relative w-14 h-14 rounded-2xl border-2 flex items-center justify-center shadow-2xl cursor-pointer"
+          style={{
+            background: 'linear-gradient(135deg, rgba(20,10,40,0.95), rgba(5,5,15,0.97))',
+            borderColor: '#4b5563',
+            boxShadow: '0 4px 24px rgba(0,0,0,0.5)',
+          }}
+          whileHover={{ scale: 1.06 }}
+          whileTap={{ scale: 0.92 }}
+          animate={lockTooltip ? { x: [-3, 3, -3, 3, 0] } : {}}
+          transition={{ duration: 0.3 }}
+        >
+          {/* Dim compass */}
+          <Compass className="w-5 h-5 absolute" style={{ color: '#374151' }} />
+          {/* Lock badge */}
+          <motion.div
+            className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full flex items-center justify-center"
+            style={{ background: 'linear-gradient(135deg, #4c1d95, #7c3aed)', border: '1.5px solid #a855f7' }}
+            animate={{ boxShadow: ['0 0 4px #7c3aed44', '0 0 10px #7c3aed88', '0 0 4px #7c3aed44'] }}
+            transition={{ duration: 2, repeat: Infinity }}
+          >
+            <Lock style={{ width: 9, height: 9, color: '#e9d5ff' }} />
+          </motion.div>
+        </motion.div>
+
+        {/* Label */}
+        <p className="text-center mt-1" style={{ fontSize: 9, color: '#4b5563', letterSpacing: '0.12em' }}>
+          TERKUNCI
+        </p>
+      </div>
+    );
+  }
+
+  // ── LOCKED STATE (player is healing at clinic — HP < 1) ───────────────────
+  if (isHealing) {
+    return (
+      <div className="fixed bottom-6 right-6 z-50" onClick={handleLockedClick}>
+        {/* Healing lock tooltip */}
+        <AnimatePresence>
+          {lockTooltip && (
+            <motion.div
+              initial={{ opacity: 0, y: 8, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 8, scale: 0.9 }}
+              transition={{ duration: 0.2 }}
+              className="absolute bottom-[76px] right-0 w-64 rounded-2xl border overflow-hidden shadow-2xl"
+              style={{
+                background: 'rgba(3,15,8,0.97)',
+                backdropFilter: 'blur(20px)',
+                borderColor: '#16a34a55',
+                boxShadow: '0 8px 40px rgba(0,0,0,0.8), 0 0 30px #16a34a20',
+              }}
+            >
+              {/* Glow top bar */}
+              <div style={{ height: 2, background: 'linear-gradient(90deg, transparent, #4ade80, #86efac, #4ade80, transparent)' }} />
+              <div className="p-4 text-center">
+                <motion.div
+                  className="text-3xl mb-2"
+                  animate={{ scale: [1, 1.2, 1] }}
+                  transition={{ duration: 1.5, repeat: Infinity }}
+                >
+                  🏥
+                </motion.div>
+                <p style={{ fontFamily: 'serif', fontWeight: 900, fontSize: '0.8rem', color: '#4ade80', letterSpacing: '0.08em', marginBottom: 6 }}>
+                  Peta Terkunci — Sedang Pulih
+                </p>
+                <p style={{ fontSize: '0.7rem', color: '#6b7280', lineHeight: 1.6 }}>
+                  HP kamu habis. Kamu wajib{' '}
+                  <span style={{ color: '#f87171', fontWeight: 700 }}>menyelesaikan pemulihan</span>{' '}
+                  di Klinik Desa sebelum bisa menjelajah dunia kembali.
+                </p>
+                {/* Blinking pulse */}
+                <motion.div
+                  className="flex items-center justify-center gap-2 mt-3 py-2 rounded-lg"
+                  style={{ background: 'rgba(127,29,29,0.3)', border: '1px solid rgba(239,68,68,0.3)' }}
+                  animate={{ opacity: [0.7, 1, 0.7] }}
+                  transition={{ duration: 1.2, repeat: Infinity }}
+                >
+                  <div className="w-2 h-2 rounded-full bg-red-400 animate-pulse" />
+                  <span style={{ fontSize: '0.65rem', color: '#f87171' }}>Pemulihan wajib aktif</span>
+                </motion.div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Locked healing button */}
+        <motion.div
+          className="relative w-14 h-14 rounded-2xl border-2 flex items-center justify-center shadow-2xl cursor-pointer"
+          style={{
+            background: 'linear-gradient(135deg, rgba(3,20,8,0.97), rgba(5,5,15,0.97))',
+            borderColor: '#166534',
+            boxShadow: '0 4px 24px rgba(0,0,0,0.5), 0 0 16px rgba(74,222,128,0.15)',
+          }}
+          whileHover={{ scale: 1.06 }}
+          whileTap={{ scale: 0.92 }}
+          animate={lockTooltip ? { x: [-3, 3, -3, 3, 0] } : {}}
+          transition={{ duration: 0.3 }}
+        >
+          {/* Pulsing healing glow */}
+          <motion.div
+            className="absolute inset-0 rounded-2xl"
+            style={{ border: '1.5px solid #4ade8055' }}
+            animate={{ opacity: [0.3, 0.8, 0.3] }}
+            transition={{ duration: 1.8, repeat: Infinity }}
+          />
+
+          {/* Dim compass */}
+          <Compass className="w-5 h-5 absolute" style={{ color: '#166534' }} />
+
+          {/* Healing lock badge */}
+          <motion.div
+            className="absolute -top-1.5 -right-1.5 w-6 h-6 rounded-full flex items-center justify-center"
+            style={{ background: 'linear-gradient(135deg, #14532d, #166534)', border: '1.5px solid #4ade80' }}
+            animate={{ boxShadow: ['0 0 4px #4ade8044', '0 0 12px #4ade8088', '0 0 4px #4ade8044'] }}
+            transition={{ duration: 1.5, repeat: Infinity }}
+          >
+            <span style={{ fontSize: 10 }}>🏥</span>
+          </motion.div>
+        </motion.div>
+
+        {/* Label */}
+        <motion.p
+          className="text-center mt-1"
+          style={{ fontSize: 9, color: '#166534', letterSpacing: '0.12em' }}
+          animate={{ opacity: [0.5, 1, 0.5] }}
+          transition={{ duration: 1.5, repeat: Infinity }}
+        >
+          MEMULIHKAN
+        </motion.p>
+      </div>
+    );
+  }
+
+  // ── NORMAL MAP STATE (tutorial complete) ────────────────────────────────────
   return (
     <>
       {/* ── Walking Transition Overlay (fixed, full-screen) ── */}
@@ -154,6 +377,12 @@ export function MapFloatingButton() {
                 boxShadow:    `0 8px 40px rgba(0,0,0,0.7), 0 0 30px ${accent}15`,
               }}
             >
+              {/* World map thumbnail background */}
+              <div style={{ position:'absolute', inset:0, overflow:'hidden', borderRadius:'inherit', pointerEvents:'none' }}>
+                <img src={mapImg} alt="map" style={{ width:'100%', height:'100%', objectFit:'cover', objectPosition:'center', opacity:0.1 }} />
+                <div style={{ position:'absolute', inset:0, background:'rgba(5,5,15,0.78)' }} />
+              </div>
+
               {/* Header */}
               <div className="px-4 pt-4 pb-3 border-b" style={{ borderColor: accent + '25' }}>
                 <div className="flex items-center justify-between mb-2">

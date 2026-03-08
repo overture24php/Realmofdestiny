@@ -1,495 +1,364 @@
-import { useEffect, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { useGame } from '../contexts/GameContext';
-import { Home, Hammer, Church, Swords, ChevronRight } from 'lucide-react';
-import { ImageWithFallback } from '../components/figma/ImageWithFallback';
+import {
+  Home, Hammer, Church, Swords, HeartPulse, ShoppingCart,
+  Leaf, Users, Waves, Building2, Heart, ChevronDown, ChevronRight,
+} from 'lucide-react';
+import { calcDerived } from '../data/statsCalc';
 
 // ─── Floating Leaf ────────────────────────────────────────────────────────────
-
 function FloatingLeaf({ index }: { index: number }) {
-  const startX  = 5 + (index * 17.3) % 90;
-  const delay   = (index * 1.7) % 5;
-  const dur     = 6 + (index * 1.3) % 6;
-  const size    = 10 + (index * 3) % 14;
-  const colors  = ['#4ade80','#86efac','#a3e635','#bbf7d0','#d9f99d','#6ee7b7'];
-  const color   = colors[index % colors.length];
-  const rotate  = (index % 2 === 0) ? [0, 180, 360] : [0, -180, -360];
-
+  const startX = 5 + (index * 17.3) % 90;
+  const delay  = (index * 1.7) % 5;
+  const dur    = 6 + (index * 1.3) % 6;
+  const size   = 10 + (index * 3) % 14;
+  const colors = ['#4ade80','#86efac','#a3e635','#bbf7d0','#d9f99d','#6ee7b7'];
+  const color  = colors[index % colors.length];
+  const rotate = (index % 2 === 0) ? [0, 180, 360] : [0, -180, -360];
   return (
     <motion.div
       className="absolute pointer-events-none select-none"
       style={{ left: `${startX}%`, top: -30, fontSize: size, color }}
       initial={{ y: -30, x: 0, opacity: 0 }}
-      animate={{
-        y: ['0%', '120vh'],
-        x: [0, 30 * (index % 2 === 0 ? 1 : -1), -20 * (index % 2 === 0 ? 1 : -1), 0],
-        opacity: [0, 0.8, 0.8, 0],
-        rotate,
-      }}
-      transition={{
-        duration: dur,
-        delay,
-        repeat: Infinity,
-        ease: 'linear',
-        times: [0, 0.1, 0.9, 1],
-      }}
+      animate={{ y: ['0%','120vh'], x: [0, 30*(index%2===0?1:-1), -20*(index%2===0?1:-1), 0], opacity: [0,0.8,0.8,0], rotate }}
+      transition={{ duration: dur, delay, repeat: Infinity, ease: 'linear', times: [0,0.1,0.9,1] }}
     >
       {['🍃','🌿','🍀','🌱','🍂','🌾'][index % 6]}
     </motion.div>
   );
 }
 
-// ─── Firefly Particle ─────────────────────────────────────────────────────────
-
+// ─── Firefly ──────────────────────────────────────────────────────────────────
 function Firefly({ index }: { index: number }) {
-  const x = 10 + (index * 19.7) % 80;
-  const y = 20 + (index * 13.3) % 60;
+  const x   = 10 + (index * 19.7) % 80;
+  const y   = 20 + (index * 13.3) % 60;
   const dur = 3 + (index % 3);
-
   return (
     <motion.div
       className="absolute w-1.5 h-1.5 rounded-full pointer-events-none"
       style={{ left: `${x}%`, top: `${y}%`, background: '#86efac', boxShadow: '0 0 8px 3px #4ade8080' }}
-      animate={{
-        x: [0, 20 * Math.sin(index), -15 * Math.cos(index), 0],
-        y: [0, -20 * Math.cos(index), 15 * Math.sin(index), 0],
-        opacity: [0, 1, 0.6, 0],
-        scale: [0.5, 1.2, 0.8, 0.5],
-      }}
-      transition={{
-        duration: dur,
-        delay: index * 0.6,
-        repeat: Infinity,
-        ease: 'easeInOut',
-      }}
+      animate={{ x: [0, 20*Math.sin(index), -15*Math.cos(index), 0], y: [0, -20*Math.cos(index), 15*Math.sin(index), 0], opacity: [0,1,0.6,0], scale: [0.5,1.2,0.8,0.5] }}
+      transition={{ duration: dur, delay: index*0.6, repeat: Infinity, ease: 'easeInOut' }}
     />
   );
 }
 
-// ─── Animated vine separator ──────────────────────────────────────────────────
-
-function VineSeparator() {
-  return (
-    <div className="flex items-center justify-center gap-3 my-1">
-      {/* Left vine */}
-      <svg width="120" height="20" viewBox="0 0 120 20" className="opacity-70">
-        <path d="M0,10 C20,3 40,17 60,10 C80,3 100,17 120,10"
-          fill="none" stroke="#4ade80" strokeWidth="1.5" strokeLinecap="round"/>
-        <circle cx="20" cy="6" r="3" fill="#4ade80" opacity="0.7"/>
-        <circle cx="50" cy="14" r="2.5" fill="#86efac" opacity="0.6"/>
-        <circle cx="80" cy="5" r="3" fill="#4ade80" opacity="0.7"/>
-        <circle cx="100" cy="14" r="2" fill="#a3e635" opacity="0.5"/>
-      </svg>
-
-      {/* Center leaf cluster */}
-      <span className="text-xl">🌿</span>
-
-      {/* Right vine (mirrored) */}
-      <svg width="120" height="20" viewBox="0 0 120 20" className="opacity-70 scale-x-[-1]">
-        <path d="M0,10 C20,3 40,17 60,10 C80,3 100,17 120,10"
-          fill="none" stroke="#4ade80" strokeWidth="1.5" strokeLinecap="round"/>
-        <circle cx="20" cy="6" r="3" fill="#4ade80" opacity="0.7"/>
-        <circle cx="50" cy="14" r="2.5" fill="#86efac" opacity="0.6"/>
-        <circle cx="80" cy="5" r="3" fill="#4ade80" opacity="0.7"/>
-        <circle cx="100" cy="14" r="2" fill="#a3e635" opacity="0.5"/>
-      </svg>
-    </div>
-  );
-}
-
-// ─── Corner Ornament ──────────────────────────────────────────────────────────
-
-function CornerOrnament({ flip = false }: { flip?: boolean }) {
-  return (
-    <svg
-      width="64" height="64" viewBox="0 0 64 64"
-      className="opacity-60"
-      style={{ transform: flip ? 'scaleX(-1)' : 'none' }}
-    >
-      {/* Corner bracket */}
-      <path d="M4,60 L4,4 L60,4" fill="none" stroke="#4ade80" strokeWidth="2"
-        strokeLinecap="round" strokeLinejoin="round"/>
-      {/* Inner decorative curve */}
-      <path d="M12,56 L12,12 L56,12" fill="none" stroke="#86efac" strokeWidth="1"
-        strokeLinecap="round" opacity="0.6"/>
-      {/* Leaf at corner */}
-      <circle cx="8" cy="8" r="5" fill="#14532d" stroke="#4ade80" strokeWidth="1.5"/>
-      <path d="M8,8 C5,5 8,3 11,6 C8,9 5,9 8,8Z" fill="#4ade80" opacity="0.9"/>
-      {/* Small dots */}
-      <circle cx="22" cy="4" r="2" fill="#4ade80" opacity="0.7"/>
-      <circle cx="4" cy="22" r="2" fill="#4ade80" opacity="0.7"/>
-      <circle cx="32" cy="12" r="1.5" fill="#86efac" opacity="0.5"/>
-      <circle cx="12" cy="32" r="1.5" fill="#86efac" opacity="0.5"/>
-    </svg>
-  );
-}
-
-// ─── Village Header Banner ───────────────────────────────────────────────────
-
-function VillageBanner() {
-  return (
-    <div className="relative mb-10 overflow-hidden">
-      {/* Glowing aura behind banner */}
-      <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-        <motion.div
-          className="w-[600px] h-32 rounded-full blur-3xl"
-          style={{ background: 'radial-gradient(ellipse, rgba(74,222,128,0.18) 0%, transparent 70%)' }}
-          animate={{ scale: [1, 1.1, 1], opacity: [0.5, 1, 0.5] }}
-          transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
-        />
-      </div>
-
-      {/* Banner container */}
-      <div className="relative">
-        {/* Top ornamental border */}
-        <motion.div
-          className="flex items-center justify-center gap-2 mb-3"
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
-        >
-          <div className="h-px flex-1 max-w-48 bg-gradient-to-r from-transparent via-green-500/60 to-green-400" />
-          <span className="text-green-400 text-xs tracking-[0.4em] font-semibold uppercase opacity-80">✦ Selamat Datang di ✦</span>
-          <div className="h-px flex-1 max-w-48 bg-gradient-to-l from-transparent via-green-500/60 to-green-400" />
-        </motion.div>
-
-        {/* Main banner plate */}
-        <motion.div
-          className="relative mx-auto max-w-2xl"
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.7, delay: 0.1 }}
-        >
-          {/* Plate shadow */}
-          <div className="absolute inset-0 rounded-2xl blur-xl"
-            style={{ background: 'rgba(20,83,45,0.4)', transform: 'translateY(6px) scaleX(0.92)' }} />
-
-          {/* Main plate */}
-          <div
-            className="relative rounded-2xl border-2 px-8 py-5 overflow-hidden"
-            style={{
-              background: 'linear-gradient(160deg, rgba(5,46,22,0.97) 0%, rgba(2,26,12,0.98) 40%, rgba(5,46,22,0.97) 100%)',
-              borderColor: 'rgba(74,222,128,0.5)',
-              boxShadow: '0 0 40px rgba(74,222,128,0.15), inset 0 1px 0 rgba(74,222,128,0.2), inset 0 -1px 0 rgba(74,222,128,0.1)',
-            }}
-          >
-            {/* Wood grain texture lines */}
-            {[15,35,55,75].map(y => (
-              <div key={y} className="absolute inset-x-0 h-px opacity-[0.04]"
-                style={{ top: `${y}%`, background: 'linear-gradient(90deg, transparent, #4ade80, transparent)' }} />
-            ))}
-
-            {/* Animated shimmer */}
-            <motion.div
-              className="absolute inset-0 opacity-10 pointer-events-none"
-              style={{
-                background: 'linear-gradient(105deg, transparent 40%, rgba(74,222,128,0.3) 50%, transparent 60%)',
-              }}
-              animate={{ x: ['-100%', '200%'] }}
-              transition={{ duration: 4, repeat: Infinity, ease: 'linear', repeatDelay: 3 }}
-            />
-
-            {/* Corner ornaments */}
-            <div className="absolute top-2 left-2">
-              <CornerOrnament />
-            </div>
-            <div className="absolute top-2 right-2">
-              <CornerOrnament flip />
-            </div>
-            <div className="absolute bottom-2 left-2" style={{ transform: 'scaleY(-1)' }}>
-              <CornerOrnament />
-            </div>
-            <div className="absolute bottom-2 right-2" style={{ transform: 'scale(-1)' }}>
-              <CornerOrnament flip />
-            </div>
-
-            {/* Content */}
-            <div className="relative text-center">
-              {/* Subtitle */}
-              <motion.p
-                className="text-green-400/80 text-xs tracking-[0.5em] uppercase mb-2 font-medium"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.3 }}
-              >
-                ⚔ &nbsp; Realm of Destiny &nbsp; ⚔
-              </motion.p>
-
-              {/* Village name */}
-              <motion.h1
-                className="relative inline-block"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.2, duration: 0.6 }}
-              >
-                <span
-                  className="text-5xl font-black tracking-wide"
-                  style={{
-                    display: 'inline-block',
-                    backgroundImage: 'linear-gradient(180deg, #86efac 0%, #4ade80 35%, #16a34a 70%, #4ade80 100%)',
-                    WebkitBackgroundClip: 'text',
-                    WebkitTextFillColor: 'transparent',
-                    backgroundClip: 'text',
-                    textShadow: 'none',
-                    filter: 'drop-shadow(0 0 20px rgba(74,222,128,0.6))',
-                    letterSpacing: '0.06em',
-                  }}
-                >
-                  Desa Daun Hijau
-                </span>
-
-                {/* Animated glow under title */}
-                <motion.div
-                  className="absolute -bottom-1 left-0 right-0 h-px"
-                  style={{ background: 'linear-gradient(90deg, transparent, #4ade80, #86efac, #4ade80, transparent)' }}
-                  animate={{ opacity: [0.4, 1, 0.4], scaleX: [0.8, 1, 0.8] }}
-                  transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
-                />
-              </motion.h1>
-
-              {/* Vine separator */}
-              <motion.div
-                initial={{ opacity: 0, scaleX: 0.5 }}
-                animate={{ opacity: 1, scaleX: 1 }}
-                transition={{ delay: 0.5, duration: 0.5 }}
-              >
-                <VineSeparator />
-              </motion.div>
-
-              {/* Tagline */}
-              <motion.p
-                className="text-emerald-300/70 text-sm tracking-widest font-light italic"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.6 }}
-              >
-                🌿 &ldquo;Desa yang damai di kaki pegunungan, tempat petualanganmu dimulai&rdquo; 🌿
-              </motion.p>
-
-              {/* Status indicators */}
-              <motion.div
-                className="flex items-center justify-center gap-4 mt-3"
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.7 }}
-              >
-                {[
-                  { icon: '☀️', label: 'Cuaca Cerah' },
-                  { icon: '🛡️', label: 'Zona Aman' },
-                  { icon: '🏡', label: '4 Fasilitas' },
-                ].map(item => (
-                  <div key={item.label} className="flex items-center gap-1.5 text-xs text-green-400/60">
-                    <span>{item.icon}</span>
-                    <span className="font-medium">{item.label}</span>
-                  </div>
-                ))}
-              </motion.div>
-            </div>
-          </div>
-        </motion.div>
-
-        {/* Bottom ornamental border */}
-        <motion.div
-          className="flex items-center justify-center gap-2 mt-3"
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.3 }}
-        >
-          <div className="h-px flex-1 max-w-48 bg-gradient-to-r from-transparent via-green-500/40 to-green-400/60" />
-          <span className="text-green-500/50 text-[10px] tracking-[0.6em] uppercase">✦ ✦ ✦</span>
-          <div className="h-px flex-1 max-w-48 bg-gradient-to-l from-transparent via-green-500/40 to-green-400/60" />
-        </motion.div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Building Card ────────────────────────────────────────────────────────────
-
-const CARD_ACCENTS: Record<string, { from: string; to: string; glow: string; border: string }> = {
-  'chief-house': { from: '#064e3b', to: '#14532d', glow: 'rgba(16,185,129,0.3)',  border: '#10b981' },
-  'blacksmith':  { from: '#431407', to: '#7c2d12', glow: 'rgba(249,115,22,0.3)', border: '#f97316' },
-  'temple':      { from: '#1e1b4b', to: '#312e81', glow: 'rgba(99,102,241,0.3)', border: '#818cf8' },
-  'arena':       { from: '#4a0505', to: '#7f1d1d', glow: 'rgba(239,68,68,0.3)',  border: '#f87171' },
+// ─── Accent lookup ────────────────────────────────────────────────────────────
+const ACCENTS: Record<string, { border: string; glow: string; from: string }> = {
+  'chief-house': { border: '#10b981', glow: 'rgba(16,185,129,0.35)',  from: '#064e3b' },
+  'blacksmith':  { border: '#f97316', glow: 'rgba(249,115,22,0.35)',  from: '#431407' },
+  'temple':      { border: '#818cf8', glow: 'rgba(99,102,241,0.35)',  from: '#1e1b4b' },
+  'arena':       { border: '#f87171', glow: 'rgba(239,68,68,0.35)',   from: '#4a0505' },
+  'clinic':      { border: '#4ade80', glow: 'rgba(74,222,128,0.35)',  from: '#052e16' },
+  'market':      { border: '#fbbf24', glow: 'rgba(251,191,36,0.35)',  from: '#3b1f00' },
+  'farmland':    { border: '#86efac', glow: 'rgba(134,239,172,0.35)', from: '#0a2010' },
+  'guild':       { border: '#fb7185', glow: 'rgba(251,113,133,0.35)', from: '#4a0515' },
+  'river':       { border: '#22d3ee', glow: 'rgba(34,211,238,0.35)',  from: '#0c1e3b' },
+  'town-hall':   { border: '#c084fc', glow: 'rgba(192,132,252,0.35)', from: '#1a0a2e' },
 };
 
+// ─── Building data type ───────────────────────────────────────────────────────
 interface Building {
   id: string;
   name: string;
   description: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
   image: string;
   route: string;
   locked: boolean;
   badge?: string;
+  tags?: string[];
+  onClickOverride?: () => void;
 }
 
-function BuildingCard({ building, index }: { building: Building; index: number }) {
+// ─── Accordion Row ────────────────────────────────────────────────────────────
+function AccordionRow({
+  building, index, isOpen, onToggle,
+}: {
+  building: Building;
+  index: number;
+  isOpen: boolean;
+  onToggle: () => void;
+}) {
   const navigate = useNavigate();
-  const Icon = building.icon;
-  const accent = CARD_ACCENTS[building.id] || CARD_ACCENTS['chief-house'];
+  const accent   = ACCENTS[building.id] ?? ACCENTS['chief-house'];
+  const Icon     = building.icon;
+
+  const handleEnter = () => {
+    if (building.locked) return;
+    if (building.onClickOverride) { building.onClickOverride(); return; }
+    navigate(building.route);
+  };
 
   return (
     <motion.div
-      key={building.id}
-      initial={{ opacity: 0, y: 30 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, delay: 0.15 * index }}
-      onClick={() => !building.locked && navigate(building.route)}
-      className={`group relative rounded-2xl overflow-hidden border-2 transition-all duration-400 ${
-        building.locked
-          ? 'opacity-50 cursor-not-allowed'
-          : 'cursor-pointer'
-      }`}
-      style={{
-        borderColor: building.locked ? 'rgba(75,85,99,0.5)' : accent.border + '50',
-        background: `linear-gradient(145deg, ${accent.from}ee, ${accent.to}dd)`,
-        boxShadow: building.locked ? 'none' : `0 4px 24px ${accent.glow}`,
-      }}
-      whileHover={building.locked ? {} : { scale: 1.025, y: -3 }}
-      whileTap={building.locked ? {} : { scale: 0.98 }}
+      initial={{ opacity: 0, x: -20 }}
+      animate={{ opacity: 1, x: 0 }}
+      transition={{ duration: 0.35, delay: index * 0.05 }}
+      className="overflow-hidden"
+      style={{ borderBottom: '1px solid rgba(74,222,128,0.1)' }}
     >
-      {/* Hover glow overlay */}
-      {!building.locked && (
-        <div
-          className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none rounded-2xl"
-          style={{ boxShadow: `inset 0 0 40px ${accent.glow}` }}
-        />
-      )}
-
-      {/* Image section */}
-      <div className="relative h-52 overflow-hidden">
-        <ImageWithFallback
-          src={building.image}
-          alt={building.name}
-          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-        />
-
-        {/* Gradient overlay */}
-        <div
-          className="absolute inset-0"
-          style={{
-            background: `linear-gradient(to top, ${accent.from}f0 0%, ${accent.from}80 40%, transparent 100%)`,
-          }}
-        />
-
-        {/* Animated shimmer on hover */}
+      {/* ── Row bar ── */}
+      <motion.div
+        onClick={onToggle}
+        whileHover={{ backgroundColor: accent.border + '10' }}
+        whileTap={{ scale: 0.995 }}
+        className="flex items-center gap-3 px-4 py-3 cursor-pointer select-none relative"
+        style={{
+          background: isOpen
+            ? `linear-gradient(90deg, ${accent.from}cc, rgba(5,15,5,0.8))`
+            : 'transparent',
+          transition: 'background 0.3s',
+        }}
+      >
+        {/* Left accent bar */}
         <motion.div
-          className="absolute inset-0 opacity-0 group-hover:opacity-100 pointer-events-none"
-          style={{
-            background: `linear-gradient(105deg, transparent 35%, ${accent.border}18 50%, transparent 65%)`,
-          }}
-          animate={{ x: ['-100%', '200%'] }}
-          transition={{ duration: 2, repeat: Infinity, ease: 'linear', repeatDelay: 1 }}
+          className="absolute left-0 top-0 bottom-0 w-0.5 rounded-r"
+          style={{ background: accent.border }}
+          animate={{ opacity: isOpen ? 1 : 0, scaleY: isOpen ? 1 : 0 }}
+          transition={{ duration: 0.25 }}
         />
 
-        {/* Icon badge */}
+        {/* Index number */}
+        <span style={{
+          fontFamily: 'serif', fontWeight: 900, fontSize: '0.65rem',
+          color: isOpen ? accent.border : 'rgba(74,222,128,0.3)',
+          minWidth: 18, textAlign: 'right',
+          transition: 'color 0.25s',
+        }}>
+          {String(index + 1).padStart(2, '0')}
+        </span>
+
+        {/* Bullet dot */}
+        <motion.div
+          className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+          style={{ background: accent.border }}
+          animate={{
+            boxShadow: isOpen ? `0 0 8px 3px ${accent.glow}` : '0 0 0px 0px transparent',
+            scale: isOpen ? 1.3 : 1,
+          }}
+          transition={{ duration: 0.3 }}
+        />
+
+        {/* Icon */}
         <div
-          className="absolute top-4 right-4 w-12 h-12 rounded-xl flex items-center justify-center border-2 backdrop-blur-sm shadow-lg"
+          className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
           style={{
-            background: accent.from + 'cc',
-            borderColor: accent.border + '80',
-            boxShadow: `0 0 16px ${accent.glow}`,
+            background: isOpen ? accent.border + '22' : 'rgba(255,255,255,0.04)',
+            border: `1px solid ${isOpen ? accent.border + '50' : 'rgba(74,222,128,0.12)'}`,
+            transition: 'all 0.3s',
           }}
         >
-          <Icon className="w-6 h-6" style={{ color: accent.border }} />
+          <Icon style={{ width: 14, height: 14, color: isOpen ? accent.border : '#6b7280', transition: 'color 0.3s' }} />
         </div>
 
-        {/* Optional badge */}
+        {/* Name */}
+        <span style={{
+          fontFamily: 'serif', fontWeight: 800,
+          color: isOpen ? '#f3f4f6' : '#9ca3af',
+          fontSize: '0.88rem', flex: 1, letterSpacing: '0.02em',
+          transition: 'color 0.25s',
+        }}>
+          {building.name}
+        </span>
+
+        {/* Badge */}
         {building.badge && (
-          <div className="absolute top-4 left-4">
-            <span
-              className="text-xs px-2.5 py-1 rounded-full font-bold border"
-              style={{
-                background: accent.from + 'cc',
-                borderColor: accent.border + '60',
-                color: accent.border,
-              }}
-            >
-              {building.badge}
-            </span>
-          </div>
+          <span className="text-[10px] px-2 py-0.5 rounded-full flex-shrink-0 hidden sm:inline-block" style={{
+            background: accent.border + '18',
+            border: `1px solid ${accent.border}40`,
+            color: accent.border,
+          }}>
+            {building.badge}
+          </span>
         )}
 
-        {/* Locked overlay */}
-        {building.locked && (
-          <div className="absolute inset-0 flex items-center justify-center bg-black/70 backdrop-blur-sm">
-            <div className="text-center">
-              <div className="text-4xl mb-2">🔒</div>
-              <p className="text-sm text-gray-300 font-semibold">Terkunci</p>
+        {/* Arrow */}
+        <motion.div
+          animate={{ rotate: isOpen ? 180 : 0 }}
+          transition={{ duration: 0.3, ease: 'easeInOut' }}
+          className="flex-shrink-0"
+        >
+          <ChevronDown style={{ width: 14, height: 14, color: isOpen ? accent.border : '#4b5563' }} />
+        </motion.div>
+      </motion.div>
+
+      {/* ── Expanded panel ── */}
+      <AnimatePresence initial={false}>
+        {isOpen && (
+          <motion.div
+            key="panel"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.4, ease: [0.25, 0.46, 0.45, 0.94] }}
+            style={{ overflow: 'hidden' }}
+          >
+            <div className="px-4 pb-5 pt-1">
+              {/* Illustration */}
+              <motion.div
+                initial={{ opacity: 0, y: 10, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                transition={{ duration: 0.35, delay: 0.05 }}
+                className="relative rounded-2xl overflow-hidden mb-4"
+                style={{
+                  border: `1.5px solid ${accent.border}40`,
+                  boxShadow: `0 4px 24px ${accent.glow}`,
+                }}
+              >
+                <img
+                  src={building.image}
+                  alt={building.name}
+                  className="w-full object-cover"
+                  style={{ height: 200 }}
+                />
+                <div className="absolute inset-0" style={{
+                  background: `linear-gradient(to top, ${accent.from}f0 0%, ${accent.from}60 40%, transparent 100%)`,
+                }} />
+                {/* Shimmer */}
+                <motion.div
+                  className="absolute inset-0 pointer-events-none"
+                  style={{ background: `linear-gradient(105deg, transparent 35%, ${accent.border}15 50%, transparent 65%)` }}
+                  animate={{ x: ['-100%', '200%'] }}
+                  transition={{ duration: 2.5, repeat: Infinity, ease: 'linear', repeatDelay: 2 }}
+                />
+                {/* Bottom label */}
+                <div className="absolute bottom-0 left-0 right-0 p-3 flex items-end justify-between">
+                  <p style={{
+                    fontFamily: 'serif', fontWeight: 900,
+                    backgroundImage: `linear-gradient(90deg, #fff, ${accent.border})`,
+                    WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+                    backgroundClip: 'text',
+                    filter: `drop-shadow(0 0 10px ${accent.glow})`,
+                    fontSize: '1.05rem', letterSpacing: '0.04em',
+                  }}>
+                    {building.name}
+                  </p>
+                  {building.badge && (
+                    <span className="text-[10px] px-2 py-1 rounded-full" style={{
+                      background: accent.from + 'dd',
+                      border: `1px solid ${accent.border}60`,
+                      color: accent.border,
+                      fontWeight: 700,
+                      backdropFilter: 'blur(4px)',
+                    }}>
+                      {building.badge}
+                    </span>
+                  )}
+                </div>
+              </motion.div>
+
+              {/* Description + Tags */}
+              <motion.div
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: 0.1 }}
+                className="mb-4"
+              >
+                <p style={{ color: '#9ca3af', fontSize: '0.78rem', lineHeight: 1.65 }}>
+                  {building.description}
+                </p>
+                {building.tags && building.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {building.tags.map(tag => (
+                      <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full" style={{
+                        background: 'rgba(74,222,128,0.07)',
+                        border: '1px solid rgba(74,222,128,0.15)',
+                        color: '#4ade8099',
+                      }}>
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </motion.div>
+
+              {/* Enter Button */}
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: 0.15 }}
+              >
+                {building.locked ? (
+                  <div className="flex items-center justify-center gap-2 py-3 rounded-xl" style={{
+                    background: 'rgba(55,65,81,0.4)',
+                    border: '1px solid rgba(75,85,99,0.4)',
+                  }}>
+                    <span style={{ color: '#6b7280', fontSize: '0.82rem' }}>🔒 Terkunci</span>
+                  </div>
+                ) : (
+                  <motion.button
+                    onClick={handleEnter}
+                    whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.97 }}
+                    className="w-full py-3 rounded-xl flex items-center justify-center gap-2"
+                    style={{
+                      background: `linear-gradient(135deg, ${accent.from}, ${accent.border}55)`,
+                      border: `1.5px solid ${accent.border}80`,
+                      cursor: 'pointer',
+                      boxShadow: `0 0 20px ${accent.glow}`,
+                    }}
+                  >
+                    <span style={{
+                      fontFamily: 'serif', fontWeight: 900,
+                      color: accent.border, fontSize: '0.88rem',
+                      letterSpacing: '0.05em',
+                    }}>
+                      ✦ Masuki {building.name.split(' ')[0]}
+                    </span>
+                    <ChevronRight style={{ width: 14, height: 14, color: accent.border }} />
+                  </motion.button>
+                )}
+              </motion.div>
             </div>
-          </div>
+          </motion.div>
         )}
-
-        {/* Building name on image bottom */}
-        <div className="absolute bottom-0 left-0 right-0 p-4">
-          <h3
-            className="text-xl font-black tracking-wide"
-            style={{
-              backgroundImage: `linear-gradient(90deg, #fff, ${accent.border})`,
-              WebkitBackgroundClip: 'text',
-              WebkitTextFillColor: 'transparent',
-              backgroundClip: 'text',
-              filter: `drop-shadow(0 0 12px ${accent.glow})`,
-            }}
-          >
-            {building.name}
-          </h3>
-        </div>
-      </div>
-
-      {/* Info section */}
-      <div className="p-4 pb-5">
-        <p className="text-sm text-gray-400 leading-relaxed mb-4">{building.description}</p>
-
-        {/* Enter button */}
-        {!building.locked && (
-          <div
-            className="flex items-center justify-between px-4 py-2.5 rounded-xl border opacity-0 group-hover:opacity-100 transition-all duration-300 translate-y-2 group-hover:translate-y-0"
-            style={{
-              background: accent.border + '15',
-              borderColor: accent.border + '40',
-            }}
-          >
-            <span className="text-sm font-semibold" style={{ color: accent.border }}>
-              Masuk ke {building.name.split(' ')[0]}
-            </span>
-            <ChevronRight className="w-4 h-4" style={{ color: accent.border }} />
-          </div>
-        )}
-      </div>
-
-      {/* Bottom glow line */}
-      <motion.div
-        className="absolute bottom-0 left-0 right-0 h-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-        style={{ background: `linear-gradient(90deg, transparent, ${accent.border}, transparent)` }}
-      />
+      </AnimatePresence>
     </motion.div>
   );
 }
 
-// ─── Main VillagePage ─────────────────────────────────────────────────────────
-
+// ─── Background image ─────────────────────────────────────────────────────────
 const BG_IMAGE = 'https://images.unsplash.com/photo-1737878609267-152480e98700?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmYW50YXN5JTIwbWVkaWV2YWwlMjB2aWxsYWdlJTIwbmlnaHQlMjBsYW50ZXJuJTIwZm9nZ3klMjBlbmNoYW50ZWR8ZW58MXx8fHwxNzcyNjI0MTUyfDA&ixlib=rb-4.1.0&q=80&w=1080';
 
+// ─── Main VillagePage ─────────────────────────────────────────────────────────
 export default function VillagePage() {
   const { player, updatePlayer } = useGame();
-  const navigate   = useNavigate();
-  // Sync location to village when player is here
+  const navigate = useNavigate();
+  const [showHealthyDialog, setShowHealthyDialog] = useState(false);
+  const [openId, setOpenId]   = useState<string | null>(null);
   const syncedRef = useRef(false);
+
   useEffect(() => {
     if (player && !syncedRef.current) {
       syncedRef.current = true;
       const loc = player.location;
       const isVillageLoc = loc === 'desa-daun-hijau' || loc === 'greenleaf_village' || !loc;
-      if (!isVillageLoc) {
-        // Only update if coming from a field
-      } else if (loc !== 'desa-daun-hijau') {
-        updatePlayer({ location: 'desa-daun-hijau' });
-      }
+      if (isVillageLoc && loc !== 'desa-daun-hijau') updatePlayer({ location: 'desa-daun-hijau' });
     }
   }, [player, updatePlayer]);
+
+  useEffect(() => {
+    if (player && player.tutorialProgress && !player.tutorialProgress.completed) {
+      const p = player.tutorialProgress;
+      const hasNoProgress = !p.gotWeapon && (p.defeatedDummies ?? 0) === 0 && (p.defeatedGuards ?? 0) === 0 && !p.meditated;
+      if (hasNoProgress) navigate('/game/village/chief-house');
+    }
+  }, [player, navigate]);
+
+  if (!player) return null;
+
+  const derived  = calcDerived(player);
+  const curHp    = player.stats.hp;
+  const hpPct    = Math.max(0, Math.min(100, (curHp / Math.max(curHp, 100)) * 100));
+  const isDead   = curHp < 1;
+  const needsHeal = curHp < 100;
+  const hpLow    = curHp > 0 && curHp < 30;
+
+  const handleClinicClick = () => {
+    navigate('/game/village/clinic');
+  };
 
   const buildings: Building[] = [
     {
@@ -501,165 +370,318 @@ export default function VillagePage() {
       route: '/game/village/chief-house',
       locked: false,
       badge: '📜 Tutorial',
+      tags: ['NPC', 'Misi', 'Pemula'],
     },
     {
       id: 'blacksmith',
       name: 'Pandai Besi Desa',
-      description: 'Tempa dan beli perlengkapan perang. Senjata terbaik lahir dari tangan sang pandai besi.',
+      description: 'Tempa dan beli perlengkapan perang. Senjata terbaik lahir dari tangan sang pandai besi Thorin Ironhammer.',
       icon: Hammer,
       image: 'https://images.unsplash.com/photo-1596441560548-2bc4b5e2c361?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxibGFja3NtaXRoJTIwd29ya3Nob3AlMjB0b29sc3xlbnwxfHx8fDE3NzI1Mjc4NTZ8MA&ixlib=rb-4.1.0&q=80&w=1080',
       route: '/game/village/blacksmith',
       locked: false,
+      tags: ['Beli', 'Jual', 'Tempa'],
     },
     {
       id: 'temple',
       name: 'Kuil Desa',
-      description: 'Meditasi untuk memulihkan dan meningkatkan HP/MP. Temukan kedamaian batin di sini.',
+      description: 'Meditasi untuk memulihkan dan meningkatkan HP/MP. Temukan kedamaian batin dan hubungan dengan kekuatan sihir.',
       icon: Church,
       image: 'https://images.unsplash.com/photo-1644413239414-33a8bf405db9?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxqYXBhbmVzZSUyMHRlbXBsZSUyMHNocmluZXxlbnwxfHx8fDE3NzI1Mjc4NTJ8MA&ixlib=rb-4.1.0&q=80&w=1080',
       route: '/game/village/temple',
       locked: false,
+      tags: ['Meditasi', 'HP+', 'MP+'],
     },
     {
       id: 'arena',
-      name: 'Arena Latihan Pasukan Penjaga',
-      description: 'Berlatih melawan boneka kayu dan pasukan penjaga. Asah kemampuan tempurmu di sini.',
+      name: 'Arena Latihan',
+      description: 'Berlatih melawan boneka kayu dan pasukan penjaga. Asah kemampuan tempurmu dan naikkan level dengan cepat.',
       icon: Swords,
       image: 'https://images.unsplash.com/photo-1727986760616-0d8f65a6ab92?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx0cmFpbmluZyUyMGFyZW5hJTIwbWVkaWV2YWx8ZW58MXx8fHwxNzcyNTI3ODUzfDA&ixlib=rb-4.1.0&q=80&w=1080',
       route: '/game/village/arena',
       locked: false,
+      tags: ['Battle', 'EXP', 'Latihan'],
+    },
+    {
+      id: 'clinic',
+      name: 'Klinik Penyembuhan',
+      description: 'Tempat penyembuh desa merawat yang terluka. Pulihkan HP, Stamina, dan Mana di sini.',
+      icon: HeartPulse,
+      image: 'https://images.unsplash.com/photo-1576020363294-ab5dca00b6f8?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtZWRpZXZhbCUyMGFwb3RoZWNhcnklMjBoZWFsZXIlMjBoZXJiYWxpc3QlMjBzaG9wJTIwZmFudGFzeXxlbnwxfHx8fDE3NzI2OTc2NzN8MA&ixlib=rb-4.1.0&q=80&w=1080',
+      route: '/game/village/clinic',
+      locked: false,
+      badge: isDead ? '🏥 Diperlukan!' : hpLow ? '⚠️ HP Kritis' : needsHeal ? '💊 HP Kurang' : undefined,
+      tags: ['Heal', 'HP', 'Penyembuh'],
+      onClickOverride: handleClinicClick,
+    },
+    {
+      id: 'market',
+      name: 'Pasar Desa',
+      description: 'Beli alat, bibit, pupuk, alat pancing, barang antik, dan jual hasil panen & ikanmu di 4 stand berbeda.',
+      icon: ShoppingCart,
+      image: 'https://images.unsplash.com/photo-1651037049239-31cacb33da6b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtZWRpZXZhbCUyMGZhbnRhc3klMjBtYXJrZXQlMjBzdGFsbHMlMjB2aWxsYWdlfGVufDF8fHx8MTc3MjkwNzUyMnww&ixlib=rb-4.1.0&q=80&w=1080',
+      route: '/game/village/market',
+      locked: false,
+      badge: '🏪 4 Stand',
+      tags: ['Beli', 'Jual', 'Perdagangan'],
+    },
+    {
+      id: 'farmland',
+      name: 'Lahan Perkebunan',
+      description: 'Sewa petak lahan untuk bercocok tanam. Tanam bibit dan panen hasilnya untuk dijual di pasar desa.',
+      icon: Leaf,
+      image: 'https://images.unsplash.com/photo-1564046105882-bee6cd1271d7?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtZWRpZXZhbCUyMGZhcm1sYW5kJTIwYWdyaWN1bHR1cmUlMjBmaWVsZCUyMGNyb3BzJTIwdmlsbGFnZXxlbnwxfHx8fDE3NzI5MDc1MjR8MA&ixlib=rb-4.1.0&q=80&w=1080',
+      route: '/game/village/farmland',
+      locked: false,
+      badge: '🌱 Coming Soon',
+      tags: ['Bertani', 'Panen', 'Lahan'],
+    },
+    {
+      id: 'guild',
+      name: 'Guild Petualang',
+      description: 'Rekrut party, sewa pengawal, dan ambil misi guild untuk mendapat EXP dan Gold berlimpah.',
+      icon: Users,
+      image: 'https://images.unsplash.com/photo-1701848055182-295e0f1e5256?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtZWRpZXZhbCUyMGZhbnRhc3klMjBndWlsZCUyMGFkdmVudHVyZXIlMjBoYWxsJTIwdGF2ZXJufGVufDF8fHx8MTc3MjkwNzUyNXww&ixlib=rb-4.1.0&q=80&w=1080',
+      route: '/game/village/guild',
+      locked: false,
+      badge: '⚔️ Coming Soon',
+      tags: ['Party', 'Misi', 'Guild'],
+    },
+    {
+      id: 'river',
+      name: 'Sungai Dekat Desa',
+      description: 'Sungai jernih mengalir dari pegunungan. Mancing, ambil air, dan cari tanaman herbal di tepiannya.',
+      icon: Waves,
+      image: 'https://images.unsplash.com/photo-1712493142073-f642a57cc5b1?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwZWFjZWZ1bCUyMHJpdmVyJTIwc3RyZWFtJTIwZm9yZXN0JTIwbWVkaWV2YWwlMjBmYW50YXN5fGVufDF8fHx8MTc3MjkwNzUyNXww&ixlib=rb-4.1.0&q=80&w=1080',
+      route: '/game/village/river',
+      locked: false,
+      badge: '🌊 Coming Soon',
+      tags: ['Mancing', 'Alam', 'Eksplorasi'],
+    },
+    {
+      id: 'town-hall',
+      name: 'Balai Desa',
+      description: 'Pilih jalur karir dan role hidupmu — Pedagang, Petualang, atau Penjaga Desa.',
+      icon: Building2,
+      image: 'https://images.unsplash.com/photo-1772465971257-01b79cae5030?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtZWRpZXZhbCUyMHZpbGxhZ2UlMjBoYWxsJTIwY291bmNpbCUyMG1eXRpbmclMjBoYWxsJTIwc3RvbmV8ZW58MXx8fHwxNzcyOTA3NTI2fDA&ixlib=rb-4.1.0&q=80&w=1080',
+      route: '/game/village/town-hall',
+      locked: false,
+      badge: '👑 Pilih Karir',
+      tags: ['Karir', 'Role', 'Bonus'],
     },
   ];
 
-  // Force player to chief house if tutorial not started
-  useEffect(() => {
-    if (player && player.tutorialProgress && !player.tutorialProgress.completed) {
-      const p = player.tutorialProgress;
-      if (!p.gotWeapon && !p.trainedAtArena && p.defeatedBoars === 0 && !p.meditated) {
-        navigate('/game/village/chief-house');
-      }
-    }
-  }, [player, navigate]);
-
-  if (!player) return null;
+  const toggleRow = (id: string) => setOpenId(prev => prev === id ? null : id);
 
   return (
-    <div className="relative max-w-5xl mx-auto">
+    <div className="relative max-w-2xl mx-auto">
 
-      {/* ── Full-page background illustration ── */}
+      {/* ── Fixed background ── */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
-        {/* Village background image */}
-        <div
-          className="absolute inset-0 bg-cover bg-center"
-          style={{ backgroundImage: `url(${BG_IMAGE})` }}
-        />
-        {/* Multi-layer overlay for readability while preserving atmosphere */}
-        <div className="absolute inset-0" style={{ background: 'rgba(2,14,5,0.62)' }} />
-        <div className="absolute inset-0" style={{
-          background: 'radial-gradient(ellipse at 50% 40%, rgba(20,83,45,0.25) 0%, transparent 65%)',
-        }} />
-        {/* Bottom gradient for clean content transition */}
-        <div className="absolute bottom-0 left-0 right-0 h-40"
-          style={{ background: 'linear-gradient(to bottom, transparent, rgba(2,14,5,0.8))' }} />
-        {/* Top vignette */}
-        <div className="absolute top-0 left-0 right-0 h-24"
-          style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.5), transparent)' }} />
-        {/* Side vignettes */}
-        <div className="absolute inset-y-0 left-0 w-24"
-          style={{ background: 'linear-gradient(to right, rgba(0,0,0,0.4), transparent)' }} />
-        <div className="absolute inset-y-0 right-0 w-24"
-          style={{ background: 'linear-gradient(to left, rgba(0,0,0,0.4), transparent)' }} />
+        <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${BG_IMAGE})` }} />
+        <div className="absolute inset-0" style={{ background: 'rgba(2,14,5,0.72)' }} />
+        <div className="absolute inset-0" style={{ background: 'radial-gradient(ellipse at 50% 40%, rgba(20,83,45,0.2) 0%, transparent 65%)' }} />
+        <div className="absolute bottom-0 left-0 right-0 h-40" style={{ background: 'linear-gradient(to bottom, transparent, rgba(2,14,5,0.8))' }} />
+        <div className="absolute top-0 left-0 right-0 h-24" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.5), transparent)' }} />
       </div>
 
-      {/* ── Floating ambient particles ── */}
+      {/* ── Particles ── */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
-        {Array.from({ length: 12 }).map((_, i) => (
-          <FloatingLeaf key={i} index={i} />
-        ))}
-        {Array.from({ length: 10 }).map((_, i) => (
-          <Firefly key={i} index={i} />
-        ))}
+        {Array.from({ length: 10 }).map((_, i) => <FloatingLeaf key={i} index={i} />)}
+        {Array.from({ length: 8 }).map((_, i) => <Firefly key={i} index={i} />)}
       </div>
 
-      {/* ── Content (above background) ── */}
-      <div className="relative z-10">
+      {/* ── Page content ── */}
+      <div className="relative z-10 pt-4 pb-16">
 
-        {/* ── Fantasy Banner Header ── */}
-        <div className="pt-4 pb-2">
-          <VillageBanner />
-        </div>
-
-        {/* ── Tutorial Alert ── */}
-        {!player.tutorialProgress.completed && (
-          <motion.div
-            className="mb-7 rounded-xl p-4 border-2"
-            style={{
-              background: 'rgba(120,53,15,0.35)',
-              borderColor: 'rgba(251,191,36,0.5)',
-              backdropFilter: 'blur(8px)',
-              boxShadow: '0 0 24px rgba(251,191,36,0.1)',
-            }}
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.5 }}
-          >
-            <div className="flex items-start gap-3">
-              <motion.div
-                className="w-3 h-3 bg-yellow-400 rounded-full mt-1.5 flex-shrink-0"
-                animate={{ opacity: [1, 0.2, 1], scale: [1, 1.3, 1] }}
-                transition={{ duration: 1.5, repeat: Infinity }}
-              />
-              <div>
-                <h3 className="font-bold text-yellow-300 mb-1 flex items-center gap-2">
-                  📜 Tutorial Aktif
-                </h3>
-                <p className="text-sm text-yellow-200/80">
-                  Kunjungi <span className="text-yellow-300 font-semibold">Rumah Kepala Desa</span> untuk memulai petualanganmu dan mempelajari dasar-dasar dunia Realm of Destiny!
+        {/* ── HP Critical Banner ── */}
+        <AnimatePresence>
+          {(isDead || hpLow) && (
+            <motion.div
+              initial={{ opacity: 0, y: -20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }}
+              className="mb-4 mx-1 p-3 rounded-xl flex items-center gap-3 cursor-pointer"
+              style={{ background: isDead ? 'rgba(127,29,29,0.5)' : 'rgba(120,53,15,0.4)', border: `1px solid ${isDead ? 'rgba(239,68,68,0.6)' : 'rgba(251,191,36,0.5)'}` }}
+              onClick={handleClinicClick}
+              whileHover={{ scale: 1.01 }}
+            >
+              <motion.span className="text-2xl" animate={{ scale: [1,1.2,1] }} transition={{ duration: 1.5, repeat: Infinity }}>
+                {isDead ? '💀' : '⚠️'}
+              </motion.span>
+              <div className="flex-1">
+                <p style={{ fontFamily: 'serif', fontWeight: 700, color: isDead ? '#f87171' : '#fbbf24', fontSize: '0.85rem' }}>
+                  {isDead ? 'HP Habis — Kamu harus ke Klinik!' : `HP Kritis! ${curHp} HP tersisa`}
                 </p>
+                <p style={{ color: '#9ca3af', fontSize: '0.7rem' }}>Kunjungi Klinik Penyembuhan</p>
               </div>
-            </div>
-          </motion.div>
-        )}
+              <div className="w-16 h-2 rounded-full overflow-hidden flex-shrink-0" style={{ background: 'rgba(0,0,0,0.5)' }}>
+                <motion.div className="h-full rounded-full"
+                  style={{ width: `${hpPct}%`, background: isDead ? '#991b1b' : 'linear-gradient(90deg,#f59e0b,#f97316)' }}
+                  animate={{ opacity: [0.6,1,0.6] }} transition={{ duration: 1.2, repeat: Infinity }}
+                />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
-        {/* ── Buildings Grid ── */}
-        <div className="grid md:grid-cols-2 gap-6">
-          {buildings.map((building, i) => (
-            <BuildingCard key={building.id} building={building} index={i} />
-          ))}
-        </div>
-
-        {/* ── Village lore footer ── */}
+        {/* ── Village header ── */}
         <motion.div
-          className="mt-8 rounded-2xl p-6 border"
-          style={{
-            background: 'rgba(5,46,22,0.5)',
-            borderColor: 'rgba(74,222,128,0.2)',
-            backdropFilter: 'blur(12px)',
-          }}
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.7 }}
+          className="mx-1 mb-5 rounded-2xl overflow-hidden"
+          initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}
+          style={{ border: '1px solid rgba(74,222,128,0.25)', background: 'rgba(2,20,8,0.75)', backdropFilter: 'blur(16px)' }}
         >
-          <div className="flex items-start gap-4">
-            <div className="text-4xl flex-shrink-0">📜</div>
+          {/* Top shimmer line */}
+          <div style={{ height: 2, background: 'linear-gradient(90deg, transparent, #4ade80, #86efac, #4ade80, transparent)' }} />
+          <div className="px-5 py-4 flex items-center justify-between">
             <div>
-              <h3 className="font-bold text-emerald-300 mb-2 flex items-center gap-2">
-                <span>Tentang Desa Daun Hijau</span>
-                <VineSeparator />
-              </h3>
-              <p className="text-gray-300/80 text-sm leading-relaxed">
-                Desa Daun Hijau berdiri di kaki <span className="text-emerald-400">Pegunungan Hijau Abadi</span>, dikelilingi hutan lebat yang selalu segar sepanjang tahun. 
-                Penduduknya hidup tenteram — para petani, pandai besi, dan ksatria penjaga berdampingan. 
-                Namun kedamaian ini mulai terusik sejak kabar kebangkitan <span className="text-red-400">Raja Iblis</span> tersebar. 
-                Kepala Desa yang bijaksana kini mencari jiwa-jiwa pemberani untuk melindungi tanah ini.
+              <p style={{ color: '#4ade80', fontSize: '0.6rem', letterSpacing: '0.4em', textTransform: 'uppercase', fontWeight: 600, marginBottom: 2 }}>
+                ✦ Realm of Destiny ✦
               </p>
+              <h1 style={{
+                fontFamily: 'serif', fontWeight: 900, fontSize: '1.6rem', letterSpacing: '0.05em',
+                backgroundImage: 'linear-gradient(180deg, #86efac 0%, #4ade80 50%, #16a34a 100%)',
+                WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', backgroundClip: 'text',
+                filter: 'drop-shadow(0 0 16px rgba(74,222,128,0.5))',
+              }}>
+                Desa Daun Hijau
+              </h1>
+              <p style={{ color: '#4ade8066', fontSize: '0.65rem', marginTop: 2, fontStyle: 'italic' }}>
+                🌿 Desa damai di kaki pegunungan hijau abadi
+              </p>
+            </div>
+            <div className="flex flex-col items-end gap-1.5">
+              {[{ icon: '☀️', label: 'Zona Aman' }, { icon: '🌿', label: '10 Lokasi' }].map(item => (
+                <div key={item.label} className="flex items-center gap-1.5">
+                  <span style={{ fontSize: '0.75rem' }}>{item.icon}</span>
+                  <span style={{ color: '#4ade8070', fontSize: '0.62rem', fontWeight: 600 }}>{item.label}</span>
+                </div>
+              ))}
+              <div className="flex items-center gap-1.5">
+                <span style={{ fontSize: '0.75rem' }}>🪙</span>
+                <span style={{ color: '#fbbf24', fontSize: '0.72rem', fontWeight: 700 }}>{(player.gold ?? 0).toLocaleString()}</span>
+              </div>
             </div>
           </div>
         </motion.div>
 
-        {/* Bottom padding */}
-        <div className="h-12" />
+        {/* ── Tutorial alert ── */}
+        {!player.tutorialProgress.completed && (() => {
+          const tp = player.tutorialProgress;
+          const m1 = tp.gotWeapon;
+          const m2 = (tp.defeatedDummies ?? 0) >= 3;
+          const m3 = (tp.defeatedGuards  ?? 0) >= 5;
+          const m4 = tp.meditated;
+          const m5 = tp.reachedLevel5 || (player.level ?? 1) >= 5;
+          const activeMission = !m1 ? 1 : !m2 ? 2 : !m3 ? 3 : !m4 ? 4 : !m5 ? 5 : 0;
+          const missionTexts: Record<number,string> = {
+            1: 'Misi 1: Kunjungi Pandai Besi dan ambil senjatamu!',
+            2: `Misi 2: Kalahkan 3 Boneka Kayu di Arena (${tp.defeatedDummies ?? 0}/3)`,
+            3: `Misi 3: Kalahkan 5 Penjaga Pemula di Arena (${tp.defeatedGuards ?? 0}/5)`,
+            4: 'Misi 4: Meditasi di Kuil Desa untuk +10 HP',
+            5: `Misi 5: Capai Level 5! (Level saat ini: ${player.level ?? 1})`,
+          };
+          return (
+            <motion.div className="mb-4 mx-1 rounded-xl p-3 border"
+              style={{ background: 'rgba(120,53,15,0.35)', borderColor: 'rgba(251,191,36,0.5)', backdropFilter: 'blur(8px)' }}
+              initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, delay: 0.4 }}>
+              <div className="flex items-center gap-2">
+                <motion.div className="w-2 h-2 bg-yellow-400 rounded-full flex-shrink-0"
+                  animate={{ opacity: [1,0.2,1], scale: [1,1.3,1] }} transition={{ duration: 1.5, repeat: Infinity }} />
+                <p style={{ color: '#fde68a', fontSize: '0.78rem', fontFamily: 'serif', flex: 1 }}>
+                  {missionTexts[activeMission] ?? 'Kunjungi Rumah Kepala Desa untuk detail misi!'}
+                </p>
+                <motion.button onClick={() => navigate('/game/village/chief-house')}
+                  whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}
+                  className="flex-shrink-0 px-2.5 py-1 rounded-lg text-xs"
+                  style={{ background: 'rgba(120,53,15,0.5)', border: '1px solid rgba(251,191,36,0.4)', color: '#fbbf24', cursor: 'pointer' }}>
+                  📜 Lihat
+                </motion.button>
+              </div>
+            </motion.div>
+          );
+        })()}
+
+        {/* ── Accordion list container ── */}
+        <motion.div
+          className="mx-1 rounded-2xl overflow-hidden"
+          initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, delay: 0.15 }}
+          style={{
+            background: 'rgba(2,18,6,0.82)',
+            border: '1.5px solid rgba(74,222,128,0.25)',
+            backdropFilter: 'blur(20px)',
+            boxShadow: '0 8px 40px rgba(0,0,0,0.6), 0 0 0 1px rgba(74,222,128,0.05)',
+          }}
+        >
+          {/* ── List header tab ── */}
+          <div className="flex items-center gap-3 px-4 py-3 border-b" style={{ borderColor: 'rgba(74,222,128,0.2)', background: 'rgba(5,30,10,0.6)' }}>
+            <motion.div
+              className="w-1.5 h-1.5 rounded-full bg-green-400"
+              animate={{ opacity: [1, 0.3, 1] }} transition={{ duration: 2, repeat: Infinity }}
+            />
+            <span style={{ fontFamily: 'serif', fontWeight: 900, color: '#4ade80', fontSize: '0.75rem', letterSpacing: '0.25em', textTransform: 'uppercase' }}>
+              List Tempat
+            </span>
+            <div className="flex-1 h-px" style={{ background: 'linear-gradient(to right, rgba(74,222,128,0.3), transparent)' }} />
+            <span style={{ color: '#4ade8050', fontSize: '0.62rem', fontFamily: 'serif' }}>
+              {buildings.length} lokasi
+            </span>
+          </div>
+
+          {/* ── Rows ── */}
+          {buildings.map((b, i) => (
+            <AccordionRow
+              key={b.id}
+              building={b}
+              index={i}
+              isOpen={openId === b.id}
+              onToggle={() => toggleRow(b.id)}
+            />
+          ))}
+
+          {/* Bottom lore strip */}
+          <div className="px-4 py-3 border-t" style={{ borderColor: 'rgba(74,222,128,0.1)', background: 'rgba(0,0,0,0.2)' }}>
+            <p style={{ color: '#4b5563', fontSize: '0.65rem', textAlign: 'center', fontStyle: 'italic', lineHeight: 1.6 }}>
+              📜 Desa Daun Hijau berdiri di kaki <span style={{ color: '#4ade8055' }}>Pegunungan Hijau Abadi</span> — kedamaian yang mulai terusik sejak kebangkitan <span style={{ color: '#f8717155' }}>Raja Iblis</span>
+            </p>
+          </div>
+        </motion.div>
+
+        <div className="h-8" />
       </div>
+
+      {/* ── Healthy Dialog ── */}
+      <AnimatePresence>
+        {showHealthyDialog && (
+          <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4"
+            style={{ background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(6px)' }}
+            onClick={() => setShowHealthyDialog(false)}>
+            <motion.div initial={{ scale: 0.85, y: 30 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.85, y: 30 }}
+              onClick={e => e.stopPropagation()}
+              className="w-full max-w-sm rounded-2xl overflow-hidden text-center"
+              style={{ background: 'rgba(5,46,22,0.95)', border: '1px solid rgba(74,222,128,0.5)', boxShadow: '0 20px 60px rgba(0,0,0,0.8)' }}>
+              <div className="h-0.5" style={{ background: 'linear-gradient(90deg, transparent, #4ade80, transparent)' }} />
+              <div className="p-6">
+                <motion.div animate={{ scale: [1,1.12,1] }} transition={{ duration: 2.5, repeat: Infinity }} className="inline-block mb-3">
+                  <span style={{ fontSize: '3.5rem', filter: 'drop-shadow(0 0 12px #4ade80)' }}>💚</span>
+                </motion.div>
+                <h3 style={{ fontFamily: 'serif', fontWeight: 900, color: '#4ade80', fontSize: '1.3rem', marginBottom: 8 }}>HP Sudah Penuh!</h3>
+                <div className="flex items-center justify-center gap-2 mb-3 p-2 rounded-lg" style={{ background: 'rgba(20,83,45,0.5)', border: '1px solid rgba(74,222,128,0.3)' }}>
+                  <Heart className="w-4 h-4 text-red-400" />
+                  <span style={{ color: '#4ade80', fontWeight: 700, fontSize: '0.9rem' }}>{curHp} HP</span>
+                </div>
+                <p style={{ color: '#9ca3af', fontSize: '0.82rem', lineHeight: 1.6, marginBottom: 20 }}>
+                  HP kamu sudah penuh! Klinik hanya bisa diakses ketika HP kamu di bawah 100.
+                </p>
+                <motion.button onClick={() => setShowHealthyDialog(false)} whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}
+                  className="w-full py-3 rounded-xl"
+                  style={{ background: 'linear-gradient(135deg, #166534, #15803d)', color: '#fff', fontFamily: 'serif', fontWeight: 700, border: 'none', cursor: 'pointer' }}>
+                  Mengerti
+                </motion.button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

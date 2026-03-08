@@ -1,13 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { motion, AnimatePresence, useAnimation } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate } from 'react-router';
 import { useGame } from '../contexts/GameContext';
 import { ArrowLeft, Heart } from 'lucide-react';
 import { ImageWithFallback } from '../components/figma/ImageWithFallback';
+import meditationFigureImg from 'figma:asset/ae028ba374b625e5980bb19e67f15716582dc9ed.png';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const HP_INTERVAL = 10; // seconds per +1 HP
+const MEDITATION_SECONDS = 10; // duration of one cycle
 
 const MANTRAS = [
   'Hirup energi alam... hembuskan kekhawatiran...',
@@ -20,9 +21,7 @@ const MANTRAS = [
   'Kekuatan sejati lahir dari ketenangan dalam',
 ];
 
-const BREATH_LABELS = ['Hirup...', 'Tahan...', 'Hembuskan...', 'Hening...'];
-
-// ── Floating Particle ─────────────────────────────────────────────────────────
+// ── Sub-components ─────────────────────────────────────────────────────────────
 
 function Particle({ x, delay, color, size }: { x: number; delay: number; color: string; size: number }) {
   return (
@@ -36,8 +35,6 @@ function Particle({ x, delay, color, size }: { x: number; delay: number; color: 
   );
 }
 
-// ── Expanding Aura Ring ───────────────────────────────────────────────────────
-
 function AuraRing({ delay, color }: { delay: number; color: string }) {
   return (
     <motion.div
@@ -49,8 +46,6 @@ function AuraRing({ delay, color }: { delay: number; color: string }) {
     />
   );
 }
-
-// ── Chakra Point ──────────────────────────────────────────────────────────────
 
 function ChakraPoint({ cx, cy, color, delay, size = 6 }: {
   cx: number; cy: number; color: string; delay: number; size?: number;
@@ -65,345 +60,424 @@ function ChakraPoint({ cx, cy, color, delay, size = 6 }: {
   );
 }
 
-// ── Meditating Figure SVG ─────────────────────────────────────────────────────
+// ── Meditation Aura Figure (image-based) ─────────────────────────────────────
 
-function MeditatingFigure({ phase }: { phase: number }) {
-  const glowIntensity = phase === 0 ? 0.5 : phase === 1 ? 0.75 : 1;
+const CHAKRAS = [
+  { id: 'crown',   top: '11%',  color: '#e879f9', glow: 'rgba(232,121,249,0.9)', size: 10, delay: 0   },
+  { id: 'eye',     top: '17%',  color: '#a78bfa', glow: 'rgba(167,139,250,0.9)', size: 7,  delay: 0.3 },
+  { id: 'throat',  top: '25%',  color: '#22d3ee', glow: 'rgba(34,211,238,0.9)',  size: 7,  delay: 0.6 },
+  { id: 'heart',   top: '37%',  color: '#4ade80', glow: 'rgba(74,222,128,0.9)',  size: 10, delay: 0.9 },
+  { id: 'solar',   top: '47%',  color: '#fbbf24', glow: 'rgba(251,191,36,0.9)',  size: 7,  delay: 1.2 },
+  { id: 'sacral',  top: '56%',  color: '#fb923c', glow: 'rgba(251,146,60,0.9)',  size: 7,  delay: 1.5 },
+  { id: 'root',    top: '66%',  color: '#f87171', glow: 'rgba(248,113,113,0.9)', size: 9,  delay: 1.8 },
+];
+
+function MeditatingFigure({ medState, breathPhase }: { medState: MedState; breathPhase: number }) {
+  const isActive = medState === 'meditating';
+  const isDone   = medState === 'done';
+  const isAnyOn  = isActive || isDone;
+
+  const figureFilter = isDone
+    ? 'drop-shadow(0 0 18px rgba(74,222,128,1)) drop-shadow(0 0 40px rgba(74,222,128,0.6)) brightness(1.5)'
+    : isActive
+      ? `drop-shadow(0 0 14px rgba(167,139,250,0.9)) drop-shadow(0 0 30px rgba(99,102,241,0.6)) brightness(${breathPhase === 0 ? 1.3 : breathPhase === 2 ? 0.85 : 1.1})`
+      : 'drop-shadow(0 0 6px rgba(139,92,246,0.4)) brightness(0.75)';
 
   return (
-    <svg viewBox="0 0 200 240" xmlns="http://www.w3.org/2000/svg" className="w-full h-full">
-      <defs>
-        <filter id="glow-soft">
-          <feGaussianBlur stdDeviation="3" result="blur" />
-          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-        </filter>
-        <filter id="glow-strong">
-          <feGaussianBlur stdDeviation="6" result="blur" />
-          <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-        </filter>
-        <radialGradient id="aura-grad" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="rgba(139,92,246,0.3)" />
-          <stop offset="100%" stopColor="rgba(139,92,246,0)" />
-        </radialGradient>
-      </defs>
+    <div className="relative flex items-center justify-center" style={{ width: 200, height: 340 }}>
 
-      {/* Aura background glow */}
-      <motion.ellipse
-        cx="100" cy="160" rx="70" ry="40"
-        fill="url(#aura-grad)"
-        animate={{ rx: [65, 75, 65], ry: [38, 44, 38] }}
-        transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
-        style={{ opacity: glowIntensity }}
+      {/* ── Background radial body glow ── */}
+      <motion.div className="absolute pointer-events-none" style={{
+        inset: 0,
+        background: isDone
+          ? 'radial-gradient(ellipse 55% 70% at 50% 38%, rgba(74,222,128,0.22) 0%, rgba(139,92,246,0.12) 60%, transparent 85%)'
+          : 'radial-gradient(ellipse 55% 70% at 50% 38%, rgba(139,92,246,0.22) 0%, rgba(99,102,241,0.1) 60%, transparent 85%)',
+        borderRadius: '50%',
+      }}
+        animate={{ opacity: isAnyOn ? [0.55, 1, 0.55] : 0.35 }}
+        transition={{ duration: 3.5, repeat: Infinity, ease: 'easeInOut' }}
       />
 
-      {/* Lotus platform */}
-      <ellipse cx="100" cy="210" rx="55" ry="12" fill="rgba(139,92,246,0.15)" />
-      <path
-        d="M55 208 Q75 190 100 195 Q125 190 145 208"
-        fill="rgba(167,139,250,0.2)"
-        stroke="rgba(167,139,250,0.4)"
-        strokeWidth="1"
-      />
-      {/* Petals */}
-      {[45,65,85,115,135,155].map((x, i) => (
-        <ellipse key={i} cx={x} cy={208} rx="12" ry="6"
-          fill="rgba(196,181,253,0.15)"
-          stroke="rgba(196,181,253,0.3)"
-          strokeWidth="0.5"
-          transform={`rotate(${i * 30 - 75} ${x} 208)`}
+      {/* ── Energy pillar through body ── */}
+      {isAnyOn && (
+        <motion.div className="absolute pointer-events-none" style={{
+          left: '50%', top: '10%', width: 3, height: '60%',
+          transform: 'translateX(-50%)',
+          background: isDone
+            ? 'linear-gradient(to bottom, rgba(232,121,249,1), rgba(74,222,128,0.9), rgba(248,113,113,0.7))'
+            : 'linear-gradient(to bottom, rgba(232,121,249,0.7), rgba(167,139,250,0.8), rgba(248,113,113,0.5))',
+          filter: 'blur(3px)',
+          borderRadius: 4,
+        }}
+          animate={{ opacity: [0.5, 1, 0.5], scaleX: [1, 1.8, 1] }}
+          transition={{ duration: 2.2, repeat: Infinity, ease: 'easeInOut' }}
+        />
+      )}
+
+      {/* ── Rotating energy halos ── */}
+      {isAnyOn && [0, 1, 2].map(i => (
+        <motion.div key={i} className="absolute pointer-events-none rounded-full" style={{
+          width: 60 + i * 30, height: 60 + i * 30,
+          top: '33%', left: '50%',
+          transform: 'translate(-50%, -50%)',
+          border: `1px solid ${isDone ? 'rgba(74,222,128,0.5)' : 'rgba(167,139,250,0.5)'}`,
+          boxShadow: `0 0 12px ${isDone ? 'rgba(74,222,128,0.2)' : 'rgba(139,92,246,0.2)'}`,
+        }}
+          animate={{ rotate: i % 2 === 0 ? [0, 360] : [360, 0], scaleX: [1, 1.15, 1], scaleY: [1, 0.9, 1], opacity: [0.4, 0.9, 0.4] }}
+          transition={{ rotate: { duration: 8 + i * 3, repeat: Infinity, ease: 'linear' }, scaleX: { duration: 3 + i, repeat: Infinity, ease: 'easeInOut' }, scaleY: { duration: 3 + i, repeat: Infinity, ease: 'easeInOut' }, opacity: { duration: 2.5, repeat: Infinity, ease: 'easeInOut', delay: i * 0.4 } }}
         />
       ))}
 
-      {/* Body (robe) */}
-      <path
-        d="M80 170 Q70 180 68 210 Q100 215 132 210 Q130 180 120 170 Z"
-        fill="rgba(109,40,217,0.35)"
-        stroke="rgba(139,92,246,0.5)"
-        strokeWidth="1"
-        filter="url(#glow-soft)"
-      />
+      {/* ── Figure image ── */}
+      <div className="absolute inset-0">
+        <motion.img
+          src={meditationFigureImg}
+          alt="Meditation figure"
+          className="w-full h-full object-contain"
+          style={{ mixBlendMode: 'screen', filter: figureFilter }}
+          animate={isActive ? { filter: [
+            'drop-shadow(0 0 10px rgba(167,139,250,0.7)) brightness(1.0)',
+            'drop-shadow(0 0 22px rgba(167,139,250,1)) brightness(1.3)',
+            'drop-shadow(0 0 10px rgba(167,139,250,0.7)) brightness(1.0)',
+          ] } : {}}
+          transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
+        />
 
-      {/* Crossed legs */}
-      <path
-        d="M68 200 Q80 185 100 188 Q120 185 132 200"
-        fill="rgba(109,40,217,0.4)"
-        stroke="rgba(139,92,246,0.5)"
-        strokeWidth="1.5"
-      />
-      {/* Feet */}
-      <ellipse cx="72" cy="205" rx="10" ry="5" fill="rgba(139,92,246,0.3)" stroke="rgba(167,139,250,0.5)" strokeWidth="1" />
-      <ellipse cx="128" cy="205" rx="10" ry="5" fill="rgba(139,92,246,0.3)" stroke="rgba(167,139,250,0.5)" strokeWidth="1" />
+        {/* ── Chakra points ── */}
+        {isAnyOn && CHAKRAS.map(ch => (
+          <motion.div key={ch.id} className="absolute rounded-full pointer-events-none" style={{
+            left: '50%', top: ch.top,
+            width: ch.size, height: ch.size,
+            transform: 'translate(-50%, -50%)',
+            background: ch.color,
+            boxShadow: `0 0 ${ch.size * 2}px ${ch.size}px ${ch.glow}, 0 0 ${ch.size * 4}px ${ch.size * 0.5}px ${ch.glow.replace('0.9', '0.4')}`,
+          }}
+            initial={{ opacity: 0, scale: 0 }}
+            animate={{ opacity: [0.6, 1, 0.6], scale: [0.85, 1.35, 0.85] }}
+            transition={{ duration: 2, delay: ch.delay, repeat: Infinity, ease: 'easeInOut' }}
+          />
+        ))}
 
-      {/* Torso */}
-      <path
-        d="M88 140 Q85 155 82 170 Q100 172 118 170 Q115 155 112 140 Z"
-        fill="rgba(109,40,217,0.4)"
-        stroke="rgba(139,92,246,0.5)"
-        strokeWidth="1"
-      />
+        {/* ── Hand orbs ── */}
+        {isAnyOn && (
+          <>
+            {[{ side: 'left', css: { left: '2%', top: '51%' } }, { side: 'right', css: { right: '2%', top: '51%' } }].map(({ side, css }, idx) => (
+              <motion.div key={side} className="absolute rounded-full pointer-events-none" style={{
+                ...css, width: 14, height: 14,
+                background: isDone ? 'rgba(74,222,128,0.9)' : 'rgba(129,140,248,0.9)',
+                boxShadow: isDone
+                  ? '0 0 24px 12px rgba(74,222,128,0.6)'
+                  : '0 0 24px 12px rgba(129,140,248,0.6)',
+              }}
+                animate={{ opacity: [0.4, 1, 0.4], scale: [0.7, 1.5, 0.7] }}
+                transition={{ duration: 2.5, delay: idx * 0.6, repeat: Infinity, ease: 'easeInOut' }}
+              />
+            ))}
+          </>
+        )}
+      </div>
 
-      {/* Arms */}
-      <path d="M88 150 Q78 160 72 170" stroke="rgba(139,92,246,0.6)" strokeWidth="4" strokeLinecap="round" fill="none" />
-      <path d="M112 150 Q122 160 128 170" stroke="rgba(139,92,246,0.6)" strokeWidth="4" strokeLinecap="round" fill="none" />
+      {/* ── Crown burst (done state) ── */}
+      {isDone && (
+        <motion.div className="absolute pointer-events-none" style={{ top: '4%', left: '50%', transform: 'translateX(-50%)' }}>
+          {[0,1,2,3,4,5,6,7].map(i => (
+            <motion.div key={i} className="absolute rounded-full" style={{
+              width: 3, height: 3, background: '#f0abfc',
+              originX: '50%', originY: '50%',
+              boxShadow: '0 0 8px 4px rgba(240,171,252,0.8)',
+            }}
+              animate={{
+                x: Math.cos((i / 8) * Math.PI * 2) * 30,
+                y: Math.sin((i / 8) * Math.PI * 2) * 20 - 10,
+                opacity: [0, 1, 0],
+                scale: [0, 1.5, 0],
+              }}
+              transition={{ duration: 1.5, delay: i * 0.1, repeat: Infinity, ease: 'easeOut' }}
+            />
+          ))}
+        </motion.div>
+      )}
 
-      {/* Hands in mudra (resting on knees, palms up) */}
-      <ellipse cx="72" cy="173" rx="7" ry="4" fill="rgba(167,139,250,0.5)" stroke="rgba(196,181,253,0.6)" strokeWidth="0.5" />
-      <ellipse cx="128" cy="173" rx="7" ry="4" fill="rgba(167,139,250,0.5)" stroke="rgba(196,181,253,0.6)" strokeWidth="0.5" />
-
-      {/* Neck */}
-      <rect x="95" y="128" width="10" height="14" rx="4"
-        fill="rgba(139,92,246,0.5)" stroke="rgba(167,139,250,0.4)" strokeWidth="0.5" />
-
-      {/* Head */}
-      <motion.circle
-        cx="100" cy="118" r="22"
-        fill="rgba(109,40,217,0.5)"
-        stroke="rgba(167,139,250,0.7)"
-        strokeWidth="1.5"
-        filter="url(#glow-soft)"
-        animate={{ r: [21, 23, 21] }}
-        transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
-      />
-      {/* Face detail */}
-      <path d="M92 118 Q100 124 108 118" stroke="rgba(196,181,253,0.5)" strokeWidth="1" fill="none" />
-      <circle cx="95" cy="114" r="1.5" fill="rgba(196,181,253,0.6)" />
-      <circle cx="105" cy="114" r="1.5" fill="rgba(196,181,253,0.6)" />
-
-      {/* Hair / Top knot */}
-      <ellipse cx="100" cy="97" rx="10" ry="5" fill="rgba(109,40,217,0.6)" stroke="rgba(167,139,250,0.5)" strokeWidth="1" />
-      <circle cx="100" cy="92" r="4" fill="rgba(139,92,246,0.6)" stroke="rgba(196,181,253,0.5)" strokeWidth="0.5" />
-
-      {/* ─── Chakra Points ─── */}
-      {/* Crown - Mahkota (violet/white) */}
-      <ChakraPoint cx={100} cy={88} color={phase >= 2 ? 'rgba(255,255,255,0.95)' : 'rgba(216,180,254,0.7)'} delay={0} size={phase >= 2 ? 7 : 5} />
-
-      {/* Ajna - Third Eye (indigo) */}
-      <ChakraPoint cx={100} cy={109} color={phase >= 1 ? 'rgba(129,140,248,0.95)' : 'rgba(129,140,248,0.5)'} delay={0.3} size={5} />
-
-      {/* Vishuddha - Throat (cyan) */}
-      <ChakraPoint cx={100} cy={131} color="rgba(34,211,238,0.8)" delay={0.6} size={4} />
-
-      {/* Anahata - Heart (green/pink) */}
-      <ChakraPoint cx={100} cy={148} color={phase >= 1 ? 'rgba(251,113,133,0.95)' : 'rgba(251,113,133,0.5)'} delay={0.9} size={phase >= 1 ? 6 : 4} />
-
-      {/* Manipura - Solar Plexus (yellow) */}
-      <ChakraPoint cx={100} cy={158} color="rgba(253,186,116,0.8)" delay={1.2} size={4} />
-
-      {/* Svadhisthana - Sacral (orange) */}
-      <ChakraPoint cx={100} cy={166} color="rgba(251,146,60,0.7)" delay={1.5} size={3} />
-
-      {/* Muladhara - Root (red) */}
-      <ChakraPoint cx={100} cy={180} color="rgba(239,68,68,0.7)" delay={1.8} size={4} />
-
-      {/* ─── Chakra connecting line ─── */}
-      <motion.line
-        x1="100" y1="88" x2="100" y2="180"
-        stroke="rgba(167,139,250,0.3)"
-        strokeWidth="1"
-        strokeDasharray="4 4"
-        animate={{ strokeOpacity: [0.2, 0.6, 0.2] }}
+      {/* ── Ground aura pool ── */}
+      <motion.div className="absolute pointer-events-none rounded-full" style={{
+        bottom: '4%', left: '50%',
+        width: 110, height: 18,
+        transform: 'translateX(-50%)',
+        background: isDone ? 'rgba(74,222,128,0.4)' : 'rgba(139,92,246,0.3)',
+        filter: 'blur(10px)',
+      }}
+        animate={{ opacity: isAnyOn ? [0.4, 0.9, 0.4] : 0.2, scaleX: [0.8, 1.3, 0.8] }}
         transition={{ duration: 3, repeat: Infinity, ease: 'easeInOut' }}
       />
-
-      {/* Energy rays from hands when phase >= 1 */}
-      {phase >= 1 && (
-        <>
-          <motion.path
-            d="M65 173 L40 160"
-            stroke="rgba(167,139,250,0.4)" strokeWidth="1.5" strokeLinecap="round"
-            animate={{ opacity: [0.2, 0.8, 0.2] }}
-            transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
-          />
-          <motion.path
-            d="M135 173 L160 160"
-            stroke="rgba(167,139,250,0.4)" strokeWidth="1.5" strokeLinecap="round"
-            animate={{ opacity: [0.2, 0.8, 0.2] }}
-            transition={{ duration: 2, delay: 0.5, repeat: Infinity, ease: 'easeInOut' }}
-          />
-        </>
-      )}
-    </svg>
+    </div>
   );
 }
 
-// ── HP Gain Float ─────────────────────────────────────────────────────────────
-
-function HpGainFloat({ key: _k }: { key: number }) {
+function HpGainFloat({ amount }: { amount: number }) {
   return (
     <motion.div
-      className="absolute left-1/2 pointer-events-none z-20 text-green-300 font-bold text-3xl"
-      style={{ top: '35%' }}
+      className="absolute left-1/2 pointer-events-none z-20 font-bold text-3xl"
+      style={{ top: '35%', color: '#4ade80' }}
       initial={{ y: 0, opacity: 1, x: '-50%' }}
-      animate={{ y: -100, opacity: 0 }}
+      animate={{ y: -110, opacity: 0 }}
       transition={{ duration: 2, ease: 'easeOut' }}
     >
-      ❤️ +1 HP
+      ❤️ +{amount} HP
     </motion.div>
+  );
+}
+
+// ── Circular countdown ring ───────────────────────────────────────────────────
+
+function CountdownRing({ progress, countdown, total }: { progress: number; countdown: number; total: number }) {
+  const R = 54;
+  const circumference = 2 * Math.PI * R;
+  const offset = circumference * (1 - progress);
+
+  return (
+    <div style={{ position: 'relative', width: 140, height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+      <svg width={140} height={140} viewBox="0 0 140 140" style={{ position: 'absolute', inset: 0, transform: 'rotate(-90deg)' }}>
+        {/* Track */}
+        <circle cx={70} cy={70} r={R} fill="none" stroke="rgba(79,70,229,0.2)" strokeWidth={8}/>
+        {/* Progress arc */}
+        <motion.circle
+          cx={70} cy={70} r={R}
+          fill="none"
+          stroke="url(#ring-grad)"
+          strokeWidth={8}
+          strokeLinecap="round"
+          strokeDasharray={circumference}
+          style={{ strokeDashoffset: offset }}
+        />
+        <defs>
+          <linearGradient id="ring-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#818cf8"/>
+            <stop offset="50%" stopColor="#a855f7"/>
+            <stop offset="100%" stopColor="#ec4899"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      {/* Center text */}
+      <div style={{ textAlign: 'center', zIndex: 1 }}>
+        <motion.p
+          key={countdown}
+          style={{ fontFamily: 'serif', fontSize: '2rem', fontWeight: 900, color: '#c4b5fd', lineHeight: 1 }}
+          initial={{ scale: 1.3, color: '#f0abfc' }}
+          animate={{ scale: 1, color: '#c4b5fd' }}
+          transition={{ duration: 0.3, type: 'tween', ease: 'easeOut' }}
+        >
+          {countdown}
+        </motion.p>
+        <p style={{ fontSize: '0.6rem', color: '#4b5563', letterSpacing: '0.12em' }}>DETIK</p>
+      </div>
+    </div>
   );
 }
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
+type MedState = 'idle' | 'meditating' | 'done';
+
+const BREATH_PHASES   = [4000, 2000, 4000, 2000];
+const BREATH_CONFIGS  = [
+  { label: 'Hirup...', color: '#93c5fd', scale: 1.25 },
+  { label: 'Tahan...', color: '#a78bfa', scale: 1.25 },
+  { label: 'Hembuskan...', color: '#818cf8', scale: 1.0 },
+  { label: 'Hening...', color: '#6b7280', scale: 1.0 },
+];
+
 export default function TemplePage() {
-  const { player, updatePlayer, completeTutorialStep } = useGame();
+  const { player, updateHp, updatePlayer, grantExp, addItemToInventory, completeTutorialStep } = useGame();
   const navigate = useNavigate();
 
-  // Core state
-  const [isMeditating, setIsMeditating]   = useState(false);
-  const [meditationTime, setMeditationTime] = useState(0);
-  const [hpGained, setHpGained]           = useState(0);
-  const [currentHp, setCurrentHp]         = useState(player?.stats.hp ?? 100);
+  // Meditation state machine
+  const [medState,     setMedState]     = useState<MedState>('idle');
+  const [countdown,    setCountdown]    = useState(MEDITATION_SECONDS);
+  const [sessionGained,setSessionGained]= useState(0); // HP gained this page visit
+  const [lastGain,     setLastGain]     = useState(0); // HP from last cycle (for float)
+  const [saving,       setSaving]       = useState(false);
 
   // Animation state
-  const [mantraIndex, setMantraIndex]     = useState(0);
-  const [mantraVisible, setMantraVisible] = useState(true);
-  const [breathPhase, setBreathPhase]     = useState(0); // 0=inhale 1=hold 2=exhale 3=pause
-  const [showHpFloat, setShowHpFloat]     = useState<number[]>([]);
-  const [hpBarKey, setHpBarKey]           = useState(0); // forces progress bar re-animation
+  const [mantraIndex,  setMantraIndex]  = useState(0);
+  const [mantraVisible,setMantraVisible]= useState(true);
+  const [breathPhase,  setBreathPhase]  = useState(0);
+  const [showFloat,    setShowFloat]    = useState<number[]>([]);
+  const floatId  = useRef(0);
 
-  // Interval refs
+  // Timer refs
   const timerRef  = useRef<number | null>(null);
-  const hpRef     = useRef<number | null>(null);
-  const mantraRef = useRef<number | null>(null);
   const breathRef = useRef<number | null>(null);
-  const floatId   = useRef(0);
+  const mantraRef = useRef<number | null>(null);
 
-  // Meditation depth phase (0/1/2)
-  const phase = meditationTime < 30 ? 0 : meditationTime < 90 ? 1 : 2;
+  // Anti-abuse: record precise start timestamp
+  const startedAtRef = useRef<number>(0);
+  // ANTI-CHEAT: strong concurrent-save lock (ref-based, not state-based, so it
+  // can't be bypassed by rapid re-render or setState batching).
+  const savingRef = useRef(false);
 
-  const subCycleProgress = (meditationTime % HP_INTERVAL) / HP_INTERVAL; // 0–1
+  // Always up-to-date player ref for callbacks
+  const playerRef = useRef(player);
+  playerRef.current = player;
 
-  // Particle config (stable across renders)
+  // Session HP gain ref (for stable callbacks)
+  const sessionGainedRef = useRef(0);
+  sessionGainedRef.current = sessionGained;
+
+  // Stable particle array
   const particles = useRef(
     Array.from({ length: 14 }, (_, i) => ({
       x: 30 + (i % 7) * 7 + Math.random() * 5,
       delay: (i * 0.4) % 3,
-      color: [
-        'rgba(167,139,250,0.7)',
-        'rgba(196,181,253,0.6)',
-        'rgba(129,140,248,0.6)',
-        'rgba(52,211,153,0.5)',
-        'rgba(251,113,133,0.5)',
-      ][i % 5],
+      color: ['rgba(167,139,250,0.7)','rgba(196,181,253,0.6)','rgba(129,140,248,0.6)','rgba(52,211,153,0.5)','rgba(251,113,133,0.5)'][i%5],
       size: 4 + (i % 3) * 2,
     }))
   );
 
-  const BREATH_PHASES   = [4000, 2000, 4000, 2000]; // ms per phase
-  const BREATH_TOTAL_MS = BREATH_PHASES.reduce((a, b) => a + b, 0); // 12000
+  const clearTimers = useCallback(() => {
+    if (timerRef.current)  { clearInterval(timerRef.current);  timerRef.current  = null; }
+    if (breathRef.current) { clearTimeout(breathRef.current);  breathRef.current = null; }
+    if (mantraRef.current) { clearInterval(mantraRef.current); mantraRef.current = null; }
+  }, []);
 
-  // ── Start Meditation ────────────────────────────────────────────────────────
+  useEffect(() => () => clearTimers(), [clearTimers]);
+
+  // ── finishMeditation — called when countdown reaches 0 ──────────────────────
+  const finishMeditationRef = useRef<() => Promise<void>>(async () => {});
+  finishMeditationRef.current = async () => {
+    // ── ANTI-CHEAT GATE 1: Concurrent-save lock ───────────────────────────────
+    // Prevents rapid timer-fires or JS console calls from stacking HP grants.
+    if (savingRef.current) {
+      console.warn('[Temple] finishMeditation already in progress — ignoring duplicate call.');
+      return;
+    }
+    savingRef.current = true;
+
+    clearTimers();
+
+    // ── ANTI-CHEAT GATE 2: Real elapsed time must be ≥ 9.5s ─────────────────
+    const elapsed = Date.now() - startedAtRef.current;
+    if (elapsed < 9500) {
+      console.warn(`[Temple] Meditation ended too fast (${elapsed}ms). Ignoring.`);
+      savingRef.current = false;
+      setMedState('idle');
+      setCountdown(MEDITATION_SECONDS);
+      return;
+    }
+
+    const current = playerRef.current;
+    if (!current) {
+      savingRef.current = false;
+      setMedState('idle');
+      return;
+    }
+
+    // HP gain scales with VIT — cap to a reasonable per-cycle maximum
+    const vitGain = Math.min(current.coreStats?.vit ?? 1, 999); // max 999 per cycle (anti-overflow)
+    setSaving(true);
+    setMedState('done');
+    setLastGain(vitGain);
+    setSessionGained(prev => prev + vitGain);
+
+    // Spawn HP float
+    floatId.current += 1;
+    const fid = floatId.current;
+    setShowFloat(ids => [...ids, fid]);
+    setTimeout(() => setShowFloat(ids => ids.filter(id => id !== fid)), 2400);
+
+    // Save HP gain — use updateHp which reads from GameContext's playerRef (always fresh)
+    const newHp = current.stats.hp + vitGain;
+    await updateHp(newHp);
+
+    // Tutorial check: total session gain >= 10 triggers completion
+    const newTotal = sessionGainedRef.current;
+    if (!current.tutorialProgress?.meditated && newTotal >= 10) {
+      await completeTutorialStep('meditate');
+      // Mission 4 rewards: 100 EXP, 200 Gold, leather_pants
+      await updatePlayer({ gold: (current?.gold ?? 0) + 200 });
+      await grantExp(100);
+      await addItemToInventory('leather_pants');
+    }
+
+    setSaving(false);
+    savingRef.current = false;  // release lock
+
+    // Return to idle after 2.5s so player sees the result
+    setTimeout(() => {
+      setMedState('idle');
+      setCountdown(MEDITATION_SECONDS);
+      setBreathPhase(0);
+      setMantraVisible(true);
+    }, 2500);
+  };
+
+  // ── startMeditation ─────────────────────────────────────────────────────────
   const startMeditation = useCallback(() => {
-    setIsMeditating(true);
-    setMeditationTime(0);
-    setHpGained(0);
-    setCurrentHp(player?.stats.hp ?? 100);
+    if (medState !== 'idle') return;
+    if (savingRef.current) return;  // ANTI-CHEAT: block start while save is in progress
+
+    startedAtRef.current = Date.now();
+    setMedState('meditating');
+    setCountdown(MEDITATION_SECONDS);
     setBreathPhase(0);
     setMantraIndex(0);
     setMantraVisible(true);
-    setHpBarKey(k => k + 1);
 
-    // Main timer
+    // Countdown — fires every second, on 0 triggers finish
     timerRef.current = window.setInterval(() => {
-      setMeditationTime(t => t + 1);
-    }, 1000);
-
-    // HP gain every HP_INTERVAL seconds
-    hpRef.current = window.setInterval(() => {
-      setHpGained(prev => {
-        const next = prev + 1;
-        setCurrentHp(hp => hp + 1);
-        // Trigger float animation
-        floatId.current += 1;
-        setShowHpFloat(ids => [...ids, floatId.current]);
-        setTimeout(() => setShowHpFloat(ids => ids.filter(id => id !== floatId.current)), 2200);
-        setHpBarKey(k => k + 1);
+      setCountdown(c => {
+        const next = c - 1;
+        if (next <= 0) {
+          clearInterval(timerRef.current!);
+          timerRef.current = null;
+          // Defer to avoid calling async in setState callback
+          setTimeout(() => finishMeditationRef.current(), 50);
+          return 0;
+        }
         return next;
       });
-    }, HP_INTERVAL * 1000);
+    }, 1000);
 
     // Breathing cycle
-    let phase = 0;
+    let bp = 0;
     const advanceBreath = () => {
-      phase = (phase + 1) % 4;
-      setBreathPhase(phase);
-      breathRef.current = window.setTimeout(advanceBreath, BREATH_PHASES[phase]);
+      bp = (bp + 1) % 4;
+      setBreathPhase(bp);
+      breathRef.current = window.setTimeout(advanceBreath, BREATH_PHASES[bp]);
     };
     breathRef.current = window.setTimeout(advanceBreath, BREATH_PHASES[0]);
 
-    // Mantra rotation every 9 seconds
+    // Mantra rotation every 9s
     mantraRef.current = window.setInterval(() => {
       setMantraVisible(false);
-      setTimeout(() => {
-        setMantraIndex(i => (i + 1) % MANTRAS.length);
-        setMantraVisible(true);
-      }, 700);
+      setTimeout(() => { setMantraIndex(i => (i + 1) % MANTRAS.length); setMantraVisible(true); }, 700);
     }, 9000);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [player?.stats.hp]);
-
-  // ── Stop Meditation ─────────────────────────────────────────────────────────
-  const stopMeditation = useCallback(async () => {
-    setIsMeditating(false);
-    clearAll();
-
-    // Save final HP to player
-    const finalHp = (player?.stats.hp ?? 100) + hpGained;
-    await updatePlayer({ stats: { ...player!.stats, hp: finalHp } });
-
-    if (hpGained >= 10 && player?.tutorialProgress && !player.tutorialProgress.meditated) {
-      await completeTutorialStep('meditate');
-      navigate('/game/village/chief-house');
-    } else {
-      navigate('/game/village');
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hpGained, player]);
-
-  const clearAll = () => {
-    if (timerRef.current)  { clearInterval(timerRef.current);  timerRef.current  = null; }
-    if (hpRef.current)     { clearInterval(hpRef.current);     hpRef.current     = null; }
-    if (mantraRef.current) { clearInterval(mantraRef.current); mantraRef.current = null; }
-    if (breathRef.current) { clearTimeout(breathRef.current);  breathRef.current = null; }
-  };
-
-  useEffect(() => () => clearAll(), []);
-
-  const formatTime = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, '0')}`;
-
-  const breathConfig = [
-    { label: 'Hirup...', color: 'text-blue-300', scale: 1.25, ringColor: 'rgba(147,197,253,0.6)' },
-    { label: 'Tahan...', color: 'text-purple-300', scale: 1.25, ringColor: 'rgba(167,139,250,0.4)' },
-    { label: 'Hembuskan...', color: 'text-indigo-300', scale: 1.0, ringColor: 'rgba(129,140,248,0.5)' },
-    { label: 'Hening...', color: 'text-gray-400', scale: 1.0, ringColor: 'rgba(100,116,139,0.3)' },
-  ];
-
-  const breath = breathConfig[breathPhase];
-
-  const phaseLabel = ['Meditasi Dasar', 'Konsentrasi Dalam', '✦ Pencerahan Jiwa ✦'];
-  const phaseColor = ['text-purple-400', 'text-indigo-300', 'text-yellow-300'];
+  }, [medState]);
 
   if (!player) return null;
 
-  // ── PRE-MEDITATION VIEW ─────────────────────────────────────────────────────
-  if (!isMeditating) {
+  const vit         = player.coreStats?.vit ?? 1;
+  const currentHp   = player.stats.hp;
+  const progress    = (MEDITATION_SECONDS - countdown) / MEDITATION_SECONDS;
+  const phase       = 0; // always phase 0 in 10s (no phase transition needed)
+  const breath      = BREATH_CONFIGS[breathPhase];
+  const tutDone     = player.tutorialProgress?.meditated;
+
+  // ── Pre-meditation view ──────────────────────────────────────────────────────
+  if (medState === 'idle') {
     return (
       <div className="max-w-4xl mx-auto">
         <button onClick={() => navigate('/game/village')}
           className="mb-6 flex items-center gap-2 text-purple-300 hover:text-purple-200 transition-colors">
-          <ArrowLeft className="w-5 h-5" />
-          <span>Kembali ke Desa</span>
+          <ArrowLeft className="w-5 h-5" /><span>Kembali ke Desa</span>
         </button>
 
         <div className="bg-gradient-to-br from-indigo-900/40 to-black/60 backdrop-blur-sm border-2 border-indigo-500/30 rounded-xl overflow-hidden">
-          {/* Header image */}
           <div className="relative h-64">
             <ImageWithFallback
               src="https://images.unsplash.com/photo-1644413239414-33a8bf405db9?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxqYXBhbmVzZSUyMHRlbXBsZSUyMHNocmluZXxlbnwxfHx8fDE3NzI1Mjc4NTJ8MA&ixlib=rb-4.1.0&q=80&w=1080"
-              alt="Temple"
-              className="w-full h-full object-cover"
+              alt="Temple" className="w-full h-full object-cover"
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-transparent"/>
             <div className="absolute bottom-4 left-6">
               <h1 className="text-3xl font-bold text-white mb-1">Kuil Desa</h1>
               <p className="text-indigo-200">Tempat Suci untuk Meditasi</p>
@@ -411,23 +485,45 @@ export default function TemplePage() {
           </div>
 
           <div className="p-8">
-            {/* Description */}
             <div className="bg-black/40 border border-indigo-500/30 rounded-lg p-6 mb-6">
               <p className="text-gray-300 leading-relaxed mb-3">
-                Tempat yang tenang dan penuh energi spiritual. Di sini kamu bisa bermeditasi untuk meningkatkan HP-mu secara permanen.
+                Tempat yang tenang dan penuh energi spiritual. Setiap siklus meditasi berlangsung tepat <span className="text-white font-semibold">10 detik</span> dan otomatis berhenti.
               </p>
               <p className="text-indigo-300 leading-relaxed">
-                Setiap <span className="text-white font-semibold">10 detik</span> meditasi akan meningkatkan HP-mu sebanyak <span className="text-white font-semibold">1 point</span>.
+                Setiap siklus 10 detik memberikan <span className="text-white font-semibold">+{vit} HP</span> (= VIT × 1). Kamu bisa meditasi berulang kali.
               </p>
             </div>
 
-            {/* Tutorial quest */}
-            {!player.tutorialProgress?.meditated && (
-              <div className="bg-yellow-900/30 border border-yellow-500/50 rounded-lg p-4 mb-6 flex items-start gap-3">
-                <div className="w-2 h-2 bg-yellow-400 rounded-full mt-2 animate-pulse flex-shrink-0" />
+            {/* VIT info */}
+            <div className="bg-cyan-900/20 border border-cyan-500/30 rounded-lg p-4 mb-5 flex items-center gap-3">
+              <span className="text-2xl">🛡️</span>
+              <div>
+                <p className="text-sm font-bold text-cyan-300">VIT Kamu: {vit}</p>
+                <p className="text-xs text-cyan-200/70">+{vit} HP per siklus 10 detik meditasi</p>
+              </div>
+            </div>
+
+            {/* Tutorial quest banner */}
+            {!tutDone && (
+              <div className="bg-yellow-900/30 border border-yellow-500/50 rounded-lg p-4 mb-5 flex items-start gap-3">
+                <div className="w-2 h-2 bg-yellow-400 rounded-full mt-2 animate-pulse flex-shrink-0"/>
                 <div>
                   <h3 className="font-bold text-yellow-300 mb-1">Quest Tutorial Aktif</h3>
-                  <p className="text-sm text-yellow-200/80">Bermeditasi hingga mendapatkan +10 HP</p>
+                  <p className="text-sm text-yellow-200/80">
+                    Bermeditasi hingga mendapatkan total +10 HP
+                    {sessionGained > 0 && <span className="ml-2 text-yellow-300">({sessionGained}/10 HP didapat sesi ini)</span>}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Session summary */}
+            {sessionGained > 0 && (
+              <div className="bg-green-900/20 border border-green-500/30 rounded-lg p-4 mb-5 flex items-center gap-3">
+                <span className="text-xl">✅</span>
+                <div>
+                  <p className="text-sm font-bold text-green-300">Sesi ini: +{sessionGained} HP didapat</p>
+                  <p className="text-xs text-green-400/70">HP saat ini: {currentHp}</p>
                 </div>
               </div>
             )}
@@ -435,10 +531,10 @@ export default function TemplePage() {
             {/* Current HP */}
             <div className="bg-red-900/30 border border-red-500/30 rounded-lg p-6 mb-8">
               <div className="flex items-center justify-center gap-3">
-                <Heart className="w-8 h-8 text-red-400" />
+                <Heart className="w-8 h-8 text-red-400"/>
                 <div>
                   <p className="text-sm text-gray-400">HP Saat Ini</p>
-                  <p className="text-3xl font-bold text-red-300">{player.stats.hp}</p>
+                  <p className="text-3xl font-bold text-red-300">{currentHp}</p>
                 </div>
               </div>
             </div>
@@ -453,7 +549,7 @@ export default function TemplePage() {
               >
                 <span className="text-2xl">🧘</span> Mulai Meditasi
               </motion.button>
-              <p className="text-gray-500 text-sm mt-3">Duduk, tenangkan pikiran, dan biarkan energi mengalir</p>
+              <p className="text-gray-500 text-sm mt-3">Siklus 10 detik — otomatis selesai & tersimpan</p>
             </div>
           </div>
         </div>
@@ -461,44 +557,37 @@ export default function TemplePage() {
     );
   }
 
-  // ── MEDITATION VIEW ─────────────────────────────────────────────────────────
+  // ── Active meditation / result view ──────────────────────────────────────────
   return (
     <div className="max-w-3xl mx-auto select-none">
-      {/* Main meditation card */}
-      <div className="relative bg-gradient-to-b from-indigo-950 via-purple-950 to-black rounded-2xl overflow-hidden border-2 border-indigo-500/40 shadow-2xl shadow-purple-900/50"
-        style={{ minHeight: '85vh' }}>
-
-        {/* ── Background starfield ── */}
+      <div
+        className="relative bg-gradient-to-b from-indigo-950 via-purple-950 to-black rounded-2xl overflow-hidden border-2 border-indigo-500/40 shadow-2xl shadow-purple-900/50"
+        style={{ minHeight: '85vh' }}
+      >
+        {/* ── Starfield background ── */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           {Array.from({ length: 40 }, (_, i) => (
-            <motion.div
-              key={i}
-              className="absolute rounded-full bg-white"
-              style={{
-                width:  1 + (i % 3),
-                height: 1 + (i % 3),
-                left:   `${(i * 37 + 5) % 98}%`,
-                top:    `${(i * 53 + 8) % 70}%`,
-              }}
-              animate={{ opacity: [0.1, 0.7, 0.1] }}
-              transition={{ duration: 2 + (i % 4), delay: (i * 0.3) % 3, repeat: Infinity, ease: 'easeInOut' }}
-            />
+            <motion.div key={i} className="absolute rounded-full bg-white"
+              style={{ width: 1+(i%3), height: 1+(i%3), left: `${(i*37+5)%98}%`, top: `${(i*53+8)%70}%` }}
+              animate={{ opacity: [0.1,0.7,0.1] }} transition={{ duration: 2+(i%4), delay: (i*0.3)%3, repeat: Infinity, ease: 'easeInOut' }}/>
           ))}
         </div>
 
-        {/* ── Phase label ── */}
+        {/* ── Phase / Status label ── */}
         <div className="relative z-10 pt-8 text-center">
           <AnimatePresence mode="wait">
-            <motion.p
-              key={phase}
-              className={`text-sm font-bold tracking-widest uppercase ${phaseColor[phase]}`}
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 10 }}
-              transition={{ duration: 0.5 }}
-            >
-              {phaseLabel[phase]}
-            </motion.p>
+            {medState === 'meditating' && (
+              <motion.p key="med" className="text-sm font-bold tracking-widest uppercase text-purple-400"
+                initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}>
+                ✦ Meditasi Berjalan ✦
+              </motion.p>
+            )}
+            {medState === 'done' && (
+              <motion.p key="done" className="text-sm font-bold tracking-widest uppercase text-green-400"
+                initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}>
+                ✦ Meditasi Selesai ✦
+              </motion.p>
+            )}
           </AnimatePresence>
         </div>
 
@@ -506,14 +595,9 @@ export default function TemplePage() {
         <div className="relative z-10 px-6 mt-2 text-center h-8">
           <AnimatePresence mode="wait">
             {mantraVisible && (
-              <motion.p
-                key={mantraIndex}
-                className="text-indigo-300/80 text-sm italic"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.6 }}
-              >
+              <motion.p key={mantraIndex} className="text-indigo-300/80 text-sm italic"
+                initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.6 }}>
                 "{MANTRAS[mantraIndex]}"
               </motion.p>
             )}
@@ -522,160 +606,169 @@ export default function TemplePage() {
 
         {/* ── Central animation area ── */}
         <div className="relative flex items-center justify-center" style={{ height: 380 }}>
-
-          {/* Aura rings expanding outward */}
+          {/* Aura rings */}
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <AuraRing delay={0}   color={phase >= 2 ? 'rgba(250,204,21,0.5)' : 'rgba(139,92,246,0.5)'} />
-            <AuraRing delay={1.2} color={phase >= 1 ? 'rgba(129,140,248,0.4)' : 'rgba(99,102,241,0.3)'} />
-            <AuraRing delay={2.4} color="rgba(167,139,250,0.25)" />
-            {phase >= 2 && <AuraRing delay={3.6} color="rgba(250,204,21,0.2)" />}
+            <AuraRing delay={0}   color="rgba(139,92,246,0.5)"/>
+            <AuraRing delay={1.2} color="rgba(99,102,241,0.3)"/>
+            <AuraRing delay={2.4} color="rgba(167,139,250,0.25)"/>
+            {medState === 'done' && <AuraRing delay={0} color="rgba(74,222,128,0.5)"/>}
           </div>
 
-          {/* Breathing orb (behind figure) */}
+          {/* Breathing orb */}
           <motion.div
             className="absolute rounded-full pointer-events-none"
             style={{
               width: 200, height: 200,
-              background: phase >= 2
-                ? 'radial-gradient(circle, rgba(250,204,21,0.15) 0%, rgba(139,92,246,0.1) 50%, transparent 70%)'
-                : phase >= 1
-                ? 'radial-gradient(circle, rgba(99,102,241,0.2) 0%, rgba(139,92,246,0.1) 50%, transparent 70%)'
+              background: medState === 'done'
+                ? 'radial-gradient(circle, rgba(74,222,128,0.2) 0%, rgba(139,92,246,0.1) 50%, transparent 70%)'
                 : 'radial-gradient(circle, rgba(79,70,229,0.2) 0%, rgba(109,40,217,0.1) 50%, transparent 70%)',
             }}
             animate={{ scale: breath.scale }}
-            transition={{
-              duration: breathPhase === 0 ? 4 : breathPhase === 2 ? 4 : 0.3,
-              ease: breathPhase === 0 ? 'easeIn' : breathPhase === 2 ? 'easeOut' : 'linear',
-            }}
+            transition={{ duration: breathPhase===0||breathPhase===2?4:0.3, ease: breathPhase===0?'easeIn':breathPhase===2?'easeOut':'linear' }}
           />
 
-          {/* Floating particles */}
+          {/* Particles */}
           <div className="absolute inset-0 overflow-hidden pointer-events-none">
-            {particles.current.map((p, i) => (
-              <Particle key={i} x={p.x} delay={p.delay} color={p.color} size={p.size} />
-            ))}
+            {particles.current.map((p, i) => <Particle key={i} x={p.x} delay={p.delay} color={p.color} size={p.size}/>)}
           </div>
 
-          {/* Figure SVG */}
-          <div className="relative z-10" style={{ width: 200, height: 240 }}>
-            <MeditatingFigure phase={phase} />
+          {/* Meditating figure */}
+          <div className="relative z-10">
+            <MeditatingFigure medState={medState} breathPhase={breathPhase}/>
           </div>
 
-          {/* HP Gain float-ups */}
-          {showHpFloat.map(id => <HpGainFloat key={id} />)}
+          {/* HP Float */}
+          {showFloat.map(id => <HpGainFloat key={id} amount={lastGain}/>)}
         </div>
 
         {/* ── Breathing guide ── */}
-        <div className="relative z-10 flex justify-center mb-4">
-          <motion.div
-            className={`px-6 py-2 rounded-full border font-semibold text-sm ${breath.color} border-current bg-black/30`}
-            animate={{ opacity: [0.7, 1, 0.7] }}
-            transition={{ duration: 1.5, repeat: Infinity }}
-          >
-            {breath.label}
-          </motion.div>
-        </div>
-
-        {/* ── HP Progress Bar ── */}
-        <div className="relative z-10 px-8 mb-6">
-          <div className="flex justify-between items-center mb-2">
-            <span className="text-xs text-gray-400">+1 HP dalam...</span>
-            <span className="text-xs text-green-400 font-semibold">{HP_INTERVAL - (meditationTime % HP_INTERVAL)} detik</span>
-          </div>
-          <div className="h-3 bg-black/40 rounded-full border border-indigo-500/30 overflow-hidden">
+        {medState === 'meditating' && (
+          <div className="relative z-10 flex justify-center mb-4">
             <motion.div
-              key={hpBarKey}
-              className="h-full rounded-full"
-              style={{
-                background: 'linear-gradient(90deg, #4f46e5, #7c3aed, #a855f7, #ec4899)',
-                boxShadow: '0 0 10px rgba(139,92,246,0.6)',
-              }}
-              initial={{ width: '0%' }}
-              animate={{ width: '100%' }}
-              transition={{ duration: HP_INTERVAL, ease: 'linear' }}
-            />
+              className="px-6 py-2 rounded-full border font-semibold text-sm border-current bg-black/30"
+              style={{ color: breath.color }}
+              animate={{ opacity: [0.7,1,0.7] }} transition={{ duration: 1.5, repeat: Infinity }}>
+              {breath.label}
+            </motion.div>
           </div>
+        )}
+
+        {/* ── Countdown ring ── */}
+        <div className="relative z-10 flex flex-col items-center mb-6 gap-4">
+          {medState === 'meditating' && (
+            <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ type: 'spring', stiffness: 260 }}>
+              <CountdownRing progress={progress} countdown={countdown} total={MEDITATION_SECONDS}/>
+            </motion.div>
+          )}
+
+          {/* Done result card */}
+          {medState === 'done' && (
+            <motion.div
+              initial={{ scale: 0.7, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}
+              style={{
+                background: 'linear-gradient(135deg, rgba(20,83,45,0.5), rgba(30,27,75,0.5))',
+                border: '1.5px solid rgba(74,222,128,0.5)', borderRadius: 16, padding: '20px 40px', textAlign: 'center',
+              }}>
+              <motion.p style={{ fontSize: '3rem', marginBottom: 4 }}
+                animate={{ scale: [1,1.2,1] }} transition={{ duration: 0.5, repeat: 2 }}>❤️</motion.p>
+              <p style={{ fontFamily: 'serif', fontWeight: 900, fontSize: '2rem', color: '#4ade80' }}>+{lastGain} HP</p>
+              <p style={{ fontSize: '0.8rem', color: '#86efac', marginTop: 4 }}>
+                {saving ? 'Menyimpan...' : 'Tersimpan! HP: ' + playerRef.current?.stats.hp}
+              </p>
+              <p style={{ fontSize: '0.65rem', color: '#4b5563', marginTop: 8 }}>
+                Sesi ini total: +{sessionGained} HP · Kembali ke layar utama sebentar lagi...
+              </p>
+            </motion.div>
+          )}
         </div>
 
         {/* ── Stats row ── */}
         <div className="relative z-10 grid grid-cols-3 gap-4 px-8 mb-6">
-          {/* Timer */}
           <div className="bg-black/40 border border-indigo-500/30 rounded-xl p-4 text-center">
-            <p className="text-xs text-gray-500 mb-1">⏱ Waktu</p>
-            <p className="text-2xl font-bold text-indigo-300 font-mono">{formatTime(meditationTime)}</p>
+            <p className="text-xs text-gray-500 mb-1">🛡️ VIT</p>
+            <p className="text-2xl font-bold text-cyan-300 font-mono">{vit}</p>
           </div>
-
-          {/* HP Gained */}
           <div className="bg-black/40 border border-red-500/30 rounded-xl p-4 text-center">
-            <p className="text-xs text-gray-500 mb-1">❤️ HP Didapat</p>
+            <p className="text-xs text-gray-500 mb-1">❤️ HP Sesi</p>
             <AnimatePresence mode="popLayout">
-              <motion.p
-                key={hpGained}
-                className="text-2xl font-bold text-red-300"
-                initial={{ scale: 1.5, color: '#4ade80' }}
-                animate={{ scale: 1, color: '#fca5a5' }}
-                transition={{ duration: 0.4 }}
-              >
-                +{hpGained}
+              <motion.p key={sessionGained} className="text-2xl font-bold text-red-300"
+                initial={{ scale: 1.5, color: '#4ade80' }} animate={{ scale: 1, color: '#fca5a5' }} transition={{ duration: 0.4, type: 'tween', ease: 'easeOut' }}>
+                +{sessionGained}
               </motion.p>
             </AnimatePresence>
           </div>
-
-          {/* Current HP */}
           <div className="bg-black/40 border border-purple-500/30 rounded-xl p-4 text-center">
             <p className="text-xs text-gray-500 mb-1">💜 HP Total</p>
-            <AnimatePresence mode="popLayout">
-              <motion.p
-                key={currentHp}
-                className="text-2xl font-bold text-purple-300"
-                initial={{ y: -10, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                transition={{ duration: 0.3 }}
-              >
-                {currentHp}
-              </motion.p>
-            </AnimatePresence>
+            <p className="text-2xl font-bold text-purple-300">{currentHp}</p>
           </div>
         </div>
 
-        {/* ── Tutorial progress ── */}
-        {!player.tutorialProgress?.meditated && (
+        {/* ── Tutorial progress bar ── */}
+        {!tutDone && (
           <div className="relative z-10 px-8 mb-4">
             <div className="bg-yellow-900/20 border border-yellow-500/30 rounded-lg p-3">
               <div className="flex items-center justify-between mb-2">
-                <span className="text-xs text-yellow-300 font-semibold">Quest: Raih +10 HP</span>
-                <span className="text-xs text-yellow-400">{hpGained}/10</span>
+                <span className="text-xs text-yellow-300 font-semibold">Quest: Raih +10 HP dari meditasi</span>
+                <span className="text-xs text-yellow-400">{Math.min(sessionGained,10)}/10</span>
               </div>
               <div className="h-2 bg-black/40 rounded-full overflow-hidden">
-                <motion.div
-                  className="h-full bg-gradient-to-r from-yellow-600 to-yellow-400 rounded-full"
-                  animate={{ width: `${Math.min((hpGained / 10) * 100, 100)}%` }}
-                  transition={{ duration: 0.5, ease: 'easeOut' }}
-                />
+                <motion.div className="h-full bg-gradient-to-r from-yellow-600 to-yellow-400 rounded-full"
+                  animate={{ width: `${Math.min((sessionGained/10)*100,100)}%` }}
+                  transition={{ duration: 0.5, ease: 'easeOut' }}/>
               </div>
-              {hpGained >= 10 && (
-                <motion.p
-                  className="text-green-300 text-xs font-bold mt-2 text-center"
-                  initial={{ opacity: 0 }} animate={{ opacity: 1 }}
-                >
-                  ✓ Quest selesai! Kamu bisa berhenti kapan saja.
+              {sessionGained >= 10 && (
+                <motion.p className="text-green-300 text-xs font-bold mt-2 text-center"
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                  ✓ Quest selesai! Tersimpan otomatis.
                 </motion.p>
               )}
             </div>
           </div>
         )}
 
-        {/* ── Stop button ── */}
+        {/* ── Dynamic action button ── */}
         <div className="relative z-10 px-8 pb-8 text-center">
-          <motion.button
-            onClick={stopMeditation}
-            whileHover={{ scale: 1.04 }}
-            whileTap={{ scale: 0.96 }}
-            className="px-10 py-3 bg-gradient-to-r from-red-700 to-orange-700 hover:from-red-600 hover:to-orange-600 rounded-xl font-semibold shadow-lg shadow-red-900/50 transition-colors"
-          >
-            ⏹ Akhiri Meditasi
-          </motion.button>
-          <p className="text-xs text-gray-600 mt-2">HP yang didapat akan tersimpan otomatis</p>
+          <AnimatePresence mode="wait">
+
+            {/* Meditating — show locked state */}
+            {medState === 'meditating' && (
+              <motion.div key="meditating"
+                initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+                <div className="inline-flex items-center gap-3 px-10 py-4 rounded-xl font-bold text-lg cursor-not-allowed select-none"
+                  style={{
+                    background: 'linear-gradient(90deg, rgba(55,48,163,0.6), rgba(91,33,182,0.6))',
+                    border: '1px solid rgba(167,139,250,0.4)',
+                    color: '#a78bfa',
+                  }}>
+                  {/* Spinner */}
+                  <motion.div className="w-5 h-5 border-2 border-purple-400/40 border-t-purple-300 rounded-full"
+                    animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}/>
+                  <span>🧘 Sedang Bermeditasi... ({countdown}s)</span>
+                </div>
+                <p className="text-gray-600 text-xs mt-3">Meditasi otomatis selesai dalam {countdown} detik</p>
+              </motion.div>
+            )}
+
+            {/* Done — transitioning back */}
+            {medState === 'done' && (
+              <motion.div key="done"
+                initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+                <div className="inline-flex items-center gap-3 px-10 py-4 rounded-xl font-bold text-lg cursor-not-allowed"
+                  style={{
+                    background: 'linear-gradient(90deg, rgba(20,83,45,0.6), rgba(22,101,52,0.6))',
+                    border: '1px solid rgba(74,222,128,0.4)', color: '#4ade80',
+                  }}>
+                  {saving ? (
+                    <motion.div className="w-5 h-5 border-2 border-green-400/40 border-t-green-300 rounded-full"
+                      animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}/>
+                  ) : '✅'}
+                  {saving ? 'Menyimpan HP...' : `HP +${lastGain} Tersimpan!`}
+                </div>
+                <p className="text-gray-600 text-xs mt-3">Bisa meditasi lagi sebentar lagi...</p>
+              </motion.div>
+            )}
+
+          </AnimatePresence>
         </div>
       </div>
     </div>
