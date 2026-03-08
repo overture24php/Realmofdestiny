@@ -9,7 +9,8 @@ import GenderSelectModal from '../components/game/GenderSelectModal';
 import { getSupabaseClient } from '../../utils/supabase-client';
 import { MapFloatingButton } from '../components/game/MapFloatingButton';
 import { getElement } from '../data/statsCalc';
-import { maleImg, femaleImg } from '../data/imageAssets';
+import maleImg from 'figma:asset/0d288298f55234e645afbd915a4e01469027b0fa.png';
+import femaleImg from 'figma:asset/998d51489ca786ac6d73a705dcfca0031ec6408c.png';
 
 /**
  * GamePage — authenticated shell with top bar.

@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import type { WorldLocation } from '../../data/worldMapData';
-import { mapImg } from '../../data/imageAssets';
+import mapImg from 'figma:asset/76192ffe5cc08b1ad78be5c314ff2153fbc28d6d.png';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 

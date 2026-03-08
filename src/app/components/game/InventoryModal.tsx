@@ -13,7 +13,7 @@ import {
 } from '../../data/itemData';
 import { ITEM_IMAGES } from '../../data/itemImages';
 import { ITEM_SVG_ART } from '../../data/itemSvgArt';
-import { anatomyImg } from '../../data/imageAssets';
+import anatomyImg from 'figma:asset/4770ca651dd0578f6de1ef6c86f54909197d45cb.png';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 

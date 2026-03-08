@@ -36,7 +36,8 @@ import {
 } from '../../utils/supabase-db';
 import { ITEM_DEFS } from '../data/itemData';
 import { ITEM_IMAGES } from '../data/itemImages';
-import { maleImg, femaleImg } from '../data/imageAssets';
+import maleImg   from 'figma:asset/0d288298f55234e645afbd915a4e01469027b0fa.png';
+import femaleImg from 'figma:asset/998d51489ca786ac6d73a705dcfca0031ec6408c.png';
 
 // ── Items available in admin equipment editor ─────────────────────────────────
 const ADMIN_ITEMS = [
