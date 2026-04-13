@@ -1,15 +1,24 @@
 -- ════════════════════════════════════════════════════════════════════════════════
--- BATTLE SERVER ENGINE v2.0
+-- BATTLE SERVER ENGINE v3.0
 -- Server-Side Turn-by-Turn Battle Processing
 --
--- GANTI battle_security_setup.sql sepenuhnya dengan file ini.
 -- Jalankan SELURUH file ini di Supabase SQL Editor → New Query → Run
 --
--- Yang berubah dari v1:
+-- Yang berubah dari v2 → v3:
+--   ✅ Probabilitas skill musuh berbasis field "probability" (50/25/15/10%) — bukan hardcode
+--   ✅ Stats musuh sinkron dengan guidelines (Pemula 100HP/10ATK, Veteran 500HP/50ATK, Elit 1000HP/250ATK)
+--   ✅ Sistem buff DIRI SENDIRI untuk musuh (Tarik Perisai, Battle Cry): kolom enemy_buffs
+--   ✅ Buff musuh mempengaruhi stat efektif (ATK/PDEF/MDEF) — Tarik Perisai/Battle Cry benar-benar kuat
+--   ✅ Multi-hit untuk serangan musuh (tusukan kuat ×2)
+--   ✅ DEF penetration untuk Tusukan Maut (abaikan 10% PDEF player)
+--   ✅ Per-turn stamina regen (5% max, min 5) — cegah stamina starvation di battle panjang
+--   ✅ process_turn mengembalikan enemy_buffs untuk UI client
+--   ✅ enemy_registry data musuh diupdate lengkap
+--
+-- Yang berubah dari v1 → v2:
 --   ✅ Setiap turn dihitung di server (bukan client)
---   ✅ Stat player di-snapshot saat start_battle — client tidak bisa kirim stat palsu
---   ✅ process_turn RPC baru: terima action, hitung damage server-side, return hasil
---   ✅ claim_battle_reward lebih simple: cukup cek battle_status = 'victory'
+--   ✅ Stat player di-snapshot saat start_battle
+--   ✅ process_turn RPC baru, claim_battle_reward lebih simple
 --   ✅ Semua skill, buff, DOT, HOT diproses di PL/pgSQL
 -- ════════════════════════════════════════════════════════════════════════════════
 
@@ -49,6 +58,7 @@ CREATE TABLE IF NOT EXISTS public.battle_sessions (
   -- Buff/Debuff state (JSONB array)
   player_buffs        JSONB       NOT NULL DEFAULT '[]',
   enemy_debuffs       JSONB       NOT NULL DEFAULT '[]',
+  enemy_buffs         JSONB       NOT NULL DEFAULT '[]',   -- buff aktif pada musuh (Tarik Perisai, Battle Cry, dll)
   skill_cooldowns     JSONB       NOT NULL DEFAULT '{}',
   buff_uid_seq        INTEGER     NOT NULL DEFAULT 0,
   -- Authoritative player stat snapshot dari DB (dibaca saat start_battle)
@@ -80,6 +90,7 @@ DO $$ BEGIN
   ALTER TABLE public.battle_sessions ADD COLUMN IF NOT EXISTS battle_start_hp    INTEGER;
   ALTER TABLE public.battle_sessions ADD COLUMN IF NOT EXISTS player_buffs       JSONB NOT NULL DEFAULT '[]';
   ALTER TABLE public.battle_sessions ADD COLUMN IF NOT EXISTS enemy_debuffs      JSONB NOT NULL DEFAULT '[]';
+  ALTER TABLE public.battle_sessions ADD COLUMN IF NOT EXISTS enemy_buffs        JSONB NOT NULL DEFAULT '[]';
   ALTER TABLE public.battle_sessions ADD COLUMN IF NOT EXISTS skill_cooldowns    JSONB NOT NULL DEFAULT '{}';
   ALTER TABLE public.battle_sessions ADD COLUMN IF NOT EXISTS buff_uid_seq       INTEGER NOT NULL DEFAULT 0;
   ALTER TABLE public.battle_sessions ADD COLUMN IF NOT EXISTS player_stats       JSONB;
@@ -145,14 +156,23 @@ CREATE POLICY "ereg_public_read" ON public.enemy_registry FOR SELECT USING (true
 INSERT INTO public.enemy_registry
   (enemy_id, reward_exp, reward_gold, min_turns, min_seconds, hp, atk, pdef, mdef, is_living, skills)
 VALUES
-  ('wooden_dummy',   15,   5, 1, 1,  80,  0,  0,  0, FALSE,
+-- ══════════════════════════════════════════════════════════════════════════════
+-- v3: probability-based skills, stats sesuai guidelines
+-- SKILL JSON: probability(%), damage_mult(0=buff), hit_count, def_penetration(%)
+--             buff_atk/buff_pdef/buff_mdef (bonus stat musuh), buff_turns
+-- ══════════════════════════════════════════════════════════════════════════════
+  ('wooden_dummy',  15,  5, 1, 1,  80,  0,  0,  0, FALSE,
    '[]'::JSONB),
-  ('rookie_guard',   40,  15, 1, 1, 160, 12,  8,  5, TRUE,
-   '[{"id":"basic","name":"Serangan Dasar","icon":"⚔️","damage_mult":1.0,"is_ultimate":false}]'::JSONB),
-  ('veteran_guard', 120,  40, 1, 1, 380, 30, 20, 15, TRUE,
-   '[{"id":"heavy_blow","name":"Pukulan Berat","icon":"💢","damage_mult":1.6,"is_ultimate":false},{"id":"iron_will","name":"Tameng Besi","icon":"🛡️","damage_mult":0.0,"is_ultimate":false}]'::JSONB),
-  ('shadow_lurker', 280,  90, 1, 1, 620, 55, 30, 35, TRUE,
-   '[{"id":"shadow_slash","name":"Tebas Bayangan","icon":"🌑","damage_mult":1.4,"is_ultimate":false},{"id":"dark_surge","name":"Gelombang Gelap","icon":"💀","damage_mult":2.2,"is_ultimate":true}]'::JSONB)
+  -- Penjaga Desa Pemula (patch v1: skill baru, HP 100)
+  ('rookie_guard',  40, 15, 1, 1, 100, 10, 30, 30, TRUE,
+   '[{"id":"normal_attack","name":"Serangan Normal","icon":"⚔️","damage_mult":1.0,"probability":40,"hit_count":1,"def_penetration":0},{"id":"tusukan_pemula","name":"Tusukan Pemula","icon":"🗡","damage_mult":1.1,"probability":25,"hit_count":1,"def_penetration":0},{"id":"angkat_perisai_pemula","name":"Angkat Perisai Pemula","icon":"🛡","damage_mult":0,"probability":20,"buff_atk":0,"buff_pdef":20,"buff_mdef":20,"buff_turns":2},{"id":"ayunan_tombak_asal","name":"Ayunan Tombak Asal","icon":"🏹","damage_mult":1.15,"probability":10,"hit_count":1,"def_penetration":0},{"id":"tusukan_bertubi_tubi","name":"Tusukan Bertubi-tubi","icon":"💥","damage_mult":0.3,"probability":5,"hit_count":5,"def_penetration":50,"is_ultimate":true}]'::JSONB),
+  -- Penjaga Desa Veteran (patch v1: skill baru, probabilitas disesuaikan)
+  ('veteran_guard', 120, 40, 1, 1, 500, 50, 90, 90, TRUE,
+   '[{"id":"normal_attack","name":"Serangan Normal","icon":"⚔️","damage_mult":1.0,"probability":40,"hit_count":1,"def_penetration":0},{"id":"tusukan_tombak","name":"Tusukan Tombak","icon":"🏹","damage_mult":1.3,"probability":25,"hit_count":1,"def_penetration":0},{"id":"angkat_perisai_tangguh","name":"Angkat Perisai Tangguh","icon":"🛡","damage_mult":0,"probability":20,"buff_atk":0,"buff_pdef":40,"buff_mdef":40,"buff_turns":3},{"id":"ayunan_tombak_terukur","name":"Ayunan Tombak Terukur","icon":"⚡","damage_mult":1.4,"probability":10,"hit_count":1,"def_penetration":0},{"id":"tusukan_bertubi_tubi_v","name":"Tusukan Bertubi-tubi","icon":"💥","damage_mult":0.3,"probability":5,"hit_count":5,"def_penetration":50,"is_ultimate":true}]'::JSONB),
+
+  -- Penjaga Desa Elit (patch: level 17, skill revamp)
+  ('shadow_lurker', 280, 90, 1, 1, 1000, 250, 300, 300, TRUE,
+   '[{"id":"normal_attack","name":"Serangan Normal","icon":"⚔️","damage_mult":1.0,"probability":40,"hit_count":1,"def_penetration":0},{"id":"tusukan_maut_e","name":"Tusukan Maut","icon":"🗡","damage_mult":1.5,"probability":25,"hit_count":1,"def_penetration":0},{"id":"battle_cry","name":"Battle Cry (Desa Daun)","icon":"📯","damage_mult":0,"probability":20,"buff_atk":100,"buff_pdef":300,"buff_mdef":300,"buff_turns":3},{"id":"ayunan_kuat","name":"Ayunan Kuat","icon":"💀","damage_mult":1.75,"probability":10,"hit_count":1,"def_penetration":20},{"id":"tusukan_kuat_bertubi_v","name":"Tusukan Kuat Bertubi-tubi","icon":"💥","damage_mult":0.4,"probability":5,"hit_count":5,"def_penetration":50,"is_ultimate":true}]'::JSONB)
 ON CONFLICT (enemy_id) DO UPDATE SET
   reward_exp  = EXCLUDED.reward_exp,
   reward_gold = EXCLUDED.reward_gold,
@@ -307,7 +327,7 @@ BEGIN
     player_mana, player_max_mana,
     enemy_hp, enemy_max_hp,
     battle_start_hp,
-    player_buffs, enemy_debuffs, skill_cooldowns, buff_uid_seq,
+    player_buffs, enemy_debuffs, enemy_buffs, skill_cooldowns, buff_uid_seq,
     battle_status, last_turn_at,
     player_stats
   ) VALUES (
@@ -317,7 +337,7 @@ BEGIN
     v_cur_mana, v_max_mana,
     v_enemy.hp, v_enemy.hp,
     v_cur_hp,
-    '[]', '[]', '{}', 0,
+    '[]', '[]', '[]', '{}', 0,
     'active', NOW(),
     jsonb_build_object(
       'physAtk',    v_phys_atk,
@@ -453,9 +473,21 @@ DECLARE
   v_e_final_dmg   INTEGER;
   -- Misc
   v_i             INTEGER;
+  v_j             INTEGER;
   v_victory       BOOLEAN := FALSE;
   v_defeat        BOOLEAN := FALSE;
   v_instant_mana_regen INTEGER := 0;
+  -- Enemy buff system
+  v_eff_enemy_atk   INTEGER  := 0;
+  v_new_enemy_buffs JSONB    := '[]';
+  -- Enemy turn extras
+  v_stam_regen      INTEGER  := 0;
+  v_e_hit_count     INTEGER  := 1;
+  v_e_def_pen       NUMERIC  := 0;
+  v_e_total_dmg     INTEGER  := 0;
+  v_e_hit_each      INTEGER  := 0;
+  v_e_hit_damages   JSONB    := '[]';  -- per-hit array for enemy multi-hit animation
+  v_cumulative      NUMERIC  := 0;
 BEGIN
   v_pid := auth.uid();
   IF v_pid IS NULL THEN RAISE EXCEPTION 'AUTH_REQUIRED'; END IF;
@@ -470,7 +502,7 @@ BEGIN
   IF v_session.is_claimed   THEN RAISE EXCEPTION 'ALREADY_CLAIMED';  END IF;
   IF v_session.battle_status <> 'active' THEN RAISE EXCEPTION 'BATTLE_NOT_ACTIVE'; END IF;
 
-  -- ── Rate limit: ≥150ms antar turn (blokir bot script) ────────────────────
+  -- ── Rate limit: ≥150ms antar turn (blokir bot script) ─────��──────────────
   IF EXTRACT(EPOCH FROM (NOW() - v_session.last_turn_at)) < 0.15 THEN
     RAISE EXCEPTION 'TOO_FAST';
   END IF;
@@ -509,6 +541,27 @@ BEGIN
   v_new_debuffs   := v_session.enemy_debuffs;
   v_new_cds       := v_session.skill_cooldowns;
 
+  -- ── BUG FIX: Carry over & tick down enemy buffs ───────────────────────────
+  -- v_new_enemy_buffs was declared as '[]' in DECLARE block, which caused ALL
+  -- enemy buffs (Tarik Perisai, Battle Cry, dll) to be wiped every turn because
+  -- UPDATE battle_sessions SET enemy_buffs = v_new_enemy_buffs always saved '[]'.
+  -- FIX: load existing buffs from session, decrement turns_left, drop expired ones.
+  -- This mirrors the exact same pattern used for v_new_buffs (player buffs) above.
+  DECLARE
+    v_eb_row   JSONB;
+    v_eb_tl    INTEGER;
+    v_eb_carry JSONB := '[]';
+  BEGIN
+    FOR v_i IN 0..jsonb_array_length(COALESCE(v_session.enemy_buffs,'[]'::JSONB))-1 LOOP
+      v_eb_row := v_session.enemy_buffs->v_i;
+      v_eb_tl  := COALESCE((v_eb_row->>'turns_left')::INTEGER, 1) - 1;
+      IF v_eb_tl > 0 THEN
+        v_eb_carry := v_eb_carry || jsonb_set(v_eb_row, '{turns_left}', to_jsonb(v_eb_tl));
+      END IF;
+    END LOOP;
+    v_new_enemy_buffs := v_eb_carry;
+  END;
+
   -- ── STEP 1: Apply active buffs to get effective player stats ─────────────
   v_eff_phys_atk       := v_phys_atk;
   v_eff_mag_atk        := v_mag_atk;
@@ -519,7 +572,21 @@ BEGIN
   v_eff_crit_dmg       := v_crit_dmg;
   v_eff_enemy_pdef     := v_enemy.pdef;
   v_eff_enemy_mdef     := v_enemy.mdef;
+  v_eff_enemy_atk      := v_enemy.atk;
   v_enemy_dmg_reduce_pct := 0;
+
+  -- Apply enemy active buffs (Tarik Perisai, Battle Cry, dll) to effective stats
+  FOR v_i IN 0..jsonb_array_length(COALESCE(v_session.enemy_buffs,'[]'::JSONB))-1 LOOP
+    v_buff     := COALESCE(v_session.enemy_buffs,'[]'::JSONB)->v_i;
+    v_buf_type := v_buff->>'type';
+    v_buf_val  := COALESCE((v_buff->>'value')::NUMERIC, 0);
+    CASE v_buf_type
+      WHEN 'enemy_atk_buff'  THEN v_eff_enemy_atk  := v_eff_enemy_atk  + v_buf_val::INTEGER;
+      WHEN 'enemy_pdef_buff' THEN v_eff_enemy_pdef  := v_eff_enemy_pdef + v_buf_val::INTEGER;
+      WHEN 'enemy_mdef_buff' THEN v_eff_enemy_mdef  := v_eff_enemy_mdef + v_buf_val::INTEGER;
+      ELSE NULL;
+    END CASE;
+  END LOOP;
   v_parry_chance_pct   := 0;
   v_parry_reduce_pct   := 0;
 
@@ -609,6 +676,17 @@ BEGIN
 
   v_new_buffs   := v_new_buff_arr;
   v_new_debuffs := v_new_deb_arr;
+
+  -- Tick enemy buffs (Tarik Perisai, Battle Cry, dll)
+  v_new_enemy_buffs := '[]';
+  FOR v_i IN 0..jsonb_array_length(COALESCE(v_session.enemy_buffs,'[]'::JSONB))-1 LOOP
+    v_buff   := COALESCE(v_session.enemy_buffs,'[]'::JSONB)->v_i;
+    v_buf_tl := COALESCE((v_buff->>'turns_left')::INTEGER, 1);
+    IF v_buf_tl > 1 THEN
+      v_new_enemy_buffs := v_new_enemy_buffs || jsonb_set(v_buff, '{turns_left}', to_jsonb(v_buf_tl - 1));
+    END IF;
+    -- turns_left=1 → expired this turn (tidak ditambahkan kembali)
+  END LOOP;
 
   -- ── STEP 2 through cooldown-tick wrapped in a labeled block so we can
   --    EXIT early (PL/pgSQL has no GOTO; EXIT label jumps to end of block).
@@ -794,6 +872,10 @@ BEGIN
     END LOOP;
   END IF; -- end skill action
 
+  -- ── Per-turn stamina regen (5% max, min 5) — cegah stamina starvation di battle panjang
+  v_stam_regen  := GREATEST(5, ROUND(v_session.player_max_stamina * 0.05)::INTEGER);
+  v_new_stamina := LEAST(v_session.player_max_stamina, v_new_stamina + v_stam_regen);
+
   -- ── Check Victory from player action ─────────────────────────────────────
   IF v_new_enemy_hp <= 0 THEN
     v_victory := TRUE;
@@ -809,63 +891,98 @@ BEGIN
     v_enemy_act_dmg  := 0;
 
   ELSE
-    -- Choose enemy action
-    v_roll       := random();
-    v_enemy_skills := v_enemy.skills;
-    v_norm_skills  := '[]'::JSONB;
-    v_ult_skills   := '[]'::JSONB;
+    -- ── Probability-based skill selection (mirrors LOCAL_ENEMIES client definition) ──
+    -- Setiap skill punya field "probability" (%). Roll 0-100, pilih skill pertama
+    -- yang kumulatif probabilitasnya >= v_roll. Identik mekanisme untuk semua musuh.
+    v_roll         := random() * 100.0;
+    v_cumulative   := 0.0;
     v_chosen_skill := NULL;
     v_enemy_is_guard := FALSE;
+    v_enemy_is_ult   := FALSE;
+    v_enemy_skills   := COALESCE(v_enemy.skills, '[]'::JSONB);
 
-    -- Categorize skills
     FOR v_i IN 0..jsonb_array_length(v_enemy_skills)-1 LOOP
-      v_buff := v_enemy_skills->v_i;
-      IF (v_buff->>'damage_mult')::NUMERIC = 0 THEN
-        -- Guard-type skill
-        IF v_roll < 0.18 THEN v_enemy_is_guard := TRUE; END IF;
-      ELSIF (v_buff->>'is_ultimate')::BOOLEAN = TRUE THEN
-        v_ult_skills := v_ult_skills || v_buff;
-      ELSE
-        v_norm_skills := v_norm_skills || v_buff;
+      v_buff       := v_enemy_skills->v_i;
+      v_cumulative := v_cumulative + COALESCE((v_buff->>'probability')::NUMERIC, 0);
+      IF v_roll < v_cumulative AND v_chosen_skill IS NULL THEN
+        v_chosen_skill := v_buff;
       END IF;
     END LOOP;
 
-    IF NOT v_enemy_is_guard THEN
-      IF jsonb_array_length(v_ult_skills) > 0 AND v_roll < 0.10 THEN
-        v_chosen_skill   := v_ult_skills->0;
-        v_enemy_is_ult   := TRUE;
-      ELSIF jsonb_array_length(v_norm_skills) > 0 AND v_roll < 0.40 THEN
-        v_chosen_skill   := v_norm_skills->( (random() * jsonb_array_length(v_norm_skills))::INTEGER % jsonb_array_length(v_norm_skills) );
-        v_enemy_is_ult   := FALSE;
-      END IF;
-    END IF;
+    -- ── Proses skill terpilih ─────────────────────────────────────────────
+    IF v_chosen_skill IS NOT NULL AND COALESCE((v_chosen_skill->>'damage_mult')::NUMERIC, 1.0) = 0 THEN
 
-    IF v_enemy_is_guard THEN
-      -- Guard: enemy defends this turn
+      -- ── BUFF / GUARD SKILL (damage_mult = 0) ────────────────────────────
+      -- Musuh tidak menyerang; malah menambah buff (Tarik Perisai, Battle Cry)
+      v_enemy_is_guard    := TRUE;
       v_enemy_act_type    := 'shield_guard';
-      v_enemy_act_name    := 'Tameng Besi';
-      v_enemy_act_icon    := '🛡️';
+      v_enemy_act_name    := COALESCE(v_chosen_skill->>'name', 'Pertahanan');
+      v_enemy_act_icon    := COALESCE(v_chosen_skill->>'icon', '🛡');
       v_enemy_act_dmg     := 0;
       v_enemy_act_raw_dmg := 0;
 
+      -- Terapkan buff ke musuh
+      DECLARE
+        v_b_atk  INTEGER := COALESCE((v_chosen_skill->>'buff_atk')::INTEGER,  0);
+        v_b_pdef INTEGER := COALESCE((v_chosen_skill->>'buff_pdef')::INTEGER, 0);
+        v_b_mdef INTEGER := COALESCE((v_chosen_skill->>'buff_mdef')::INTEGER, 0);
+        v_b_tl   INTEGER := COALESCE((v_chosen_skill->>'buff_turns')::INTEGER, 3);
+      BEGIN
+        IF v_b_atk > 0 THEN
+          v_new_uid_seq := v_new_uid_seq + 1;
+          v_new_enemy_buffs := v_new_enemy_buffs || jsonb_build_object(
+            'uid',v_new_uid_seq,'type','enemy_atk_buff','value',v_b_atk,'turns_left',v_b_tl);
+        END IF;
+        IF v_b_pdef > 0 THEN
+          v_new_uid_seq := v_new_uid_seq + 1;
+          v_new_enemy_buffs := v_new_enemy_buffs || jsonb_build_object(
+            'uid',v_new_uid_seq,'type','enemy_pdef_buff','value',v_b_pdef,'turns_left',v_b_tl);
+        END IF;
+        IF v_b_mdef > 0 THEN
+          v_new_uid_seq := v_new_uid_seq + 1;
+          v_new_enemy_buffs := v_new_enemy_buffs || jsonb_build_object(
+            'uid',v_new_uid_seq,'type','enemy_mdef_buff','value',v_b_mdef,'turns_left',v_b_tl);
+        END IF;
+      END;
+
     ELSE
-      -- Compute enemy damage
-      v_e_mult    := CASE WHEN v_chosen_skill IS NULL THEN 1.0 ELSE (v_chosen_skill->>'damage_mult')::NUMERIC END;
-      v_enemy_act_type := CASE WHEN v_chosen_skill IS NULL THEN 'basic'
-                               WHEN v_enemy_is_ult THEN 'ultimate'
-                               ELSE 'skill' END;
+      -- ── ATTACK SKILL (damage_mult > 0) ──────────────────────────────────
+      v_e_mult      := CASE WHEN v_chosen_skill IS NULL
+                            THEN 1.0
+                            ELSE COALESCE((v_chosen_skill->>'damage_mult')::NUMERIC, 1.0) END;
+      v_e_hit_count := CASE WHEN v_chosen_skill IS NULL
+                            THEN 1
+                            ELSE COALESCE((v_chosen_skill->>'hit_count')::INTEGER, 1) END;
+      v_e_def_pen   := CASE WHEN v_chosen_skill IS NULL
+                            THEN 0
+                            ELSE COALESCE((v_chosen_skill->>'def_penetration')::NUMERIC, 0) END;
+      v_enemy_is_ult := CASE WHEN v_chosen_skill IS NULL THEN FALSE
+                             ELSE COALESCE((v_chosen_skill->>'is_ultimate')::BOOLEAN, FALSE) END;
       v_enemy_act_name := CASE WHEN v_chosen_skill IS NULL THEN 'Serangan Dasar'
-                               ELSE v_chosen_skill->>'name' END;
-      v_enemy_act_icon := CASE WHEN v_chosen_skill IS NULL THEN '⚔️'
-                               ELSE v_chosen_skill->>'icon' END;
+                               ELSE COALESCE(v_chosen_skill->>'name','Serangan Dasar') END;
+      v_enemy_act_icon := CASE WHEN v_chosen_skill IS NULL THEN '⚔'
+                               ELSE COALESCE(v_chosen_skill->>'icon','⚔') END;
+      v_enemy_act_type := CASE WHEN v_enemy_is_ult THEN 'ultimate' ELSE 'skill' END;
 
-      v_e_raw_dmg := battle_calc_dmg(
-        v_enemy.atk::NUMERIC,
-        v_e_mult,
-        (v_eff_phys_def + v_guard_def_bonus)::NUMERIC
-      );
+      -- DEF penetration: kurangi effective player pdef
+      DECLARE v_player_eff_def NUMERIC;
+      BEGIN
+        v_player_eff_def := GREATEST(0.0,
+          (v_eff_phys_def + v_guard_def_bonus)::NUMERIC * (1.0 - v_e_def_pen / 100.0));
 
-      -- Apply enemy_dmg_reduce
+        -- Multi-hit: kalkulasi setiap hit dengan formula yang sama
+        -- Setiap hit dicatat ke v_e_hit_damages agar client bisa animasi hit-by-hit.
+        v_e_total_dmg   := 0;
+        v_e_hit_damages := '[]';
+        FOR v_j IN 1..GREATEST(1, v_e_hit_count) LOOP
+          v_e_hit_each    := battle_calc_dmg(v_eff_enemy_atk::NUMERIC, v_e_mult, v_player_eff_def);
+          v_e_total_dmg   := v_e_total_dmg + v_e_hit_each;
+          v_e_hit_damages := v_e_hit_damages || to_jsonb(v_e_hit_each);
+        END LOOP;
+        v_e_raw_dmg := v_e_total_dmg;
+      END;
+
+      -- Apply enemy_dmg_reduce buff dari player
       IF v_enemy_dmg_reduce_pct > 0 THEN
         v_e_raw_dmg := GREATEST(0, ROUND(v_e_raw_dmg * (1.0 - v_enemy_dmg_reduce_pct / 100.0))::INTEGER);
       END IF;
@@ -988,6 +1105,7 @@ BEGIN
     enemy_hp        = v_new_enemy_hp,
     player_buffs    = v_new_buffs,
     enemy_debuffs   = v_new_debuffs,
+    enemy_buffs     = v_new_enemy_buffs,
     skill_cooldowns = v_new_cds,
     buff_uid_seq    = v_new_uid_seq,
     turn_count      = v_session.turn_count + 1,
@@ -1012,14 +1130,16 @@ BEGIN
     'hot_player_heal',v_hot_player_heal,
     -- Enemy action
     'enemy_action', jsonb_build_object(
-      'type',       v_enemy_act_type,
-      'name',       v_enemy_act_name,
-      'icon',       v_enemy_act_icon,
-      'dmg',        v_enemy_act_dmg,
-      'raw_dmg',    v_enemy_act_raw_dmg,
-      'is_dodged',  v_enemy_is_dodged,
-      'is_guard',   v_enemy_is_guard,
-      'is_ultimate',v_enemy_is_ult
+      'type',        v_enemy_act_type,
+      'name',        v_enemy_act_name,
+      'icon',        v_enemy_act_icon,
+      'dmg',         v_enemy_act_dmg,
+      'raw_dmg',     v_enemy_act_raw_dmg,
+      'is_dodged',   v_enemy_is_dodged,
+      'is_guard',    v_enemy_is_guard,
+      'is_ultimate', v_enemy_is_ult,
+      'hit_count',   GREATEST(1, v_e_hit_count),
+      'hit_damages', v_e_hit_damages
     ),
     -- Reflect
     'reflect_dmg',    v_reflect_dmg,
@@ -1037,6 +1157,7 @@ BEGIN
     -- Updated buffs/cooldowns for client display
     'player_buffs',   v_new_buffs,
     'enemy_debuffs',  v_new_debuffs,
+    'enemy_buffs',    v_new_enemy_buffs,
     'skill_cooldowns',v_new_cds
   );
 END;
@@ -1150,6 +1271,7 @@ BEGIN
     'enemy_max_hp',   v_session.enemy_max_hp,
     'player_buffs',   v_session.player_buffs,
     'enemy_debuffs',  v_session.enemy_debuffs,
+    'enemy_buffs',    v_session.enemy_buffs,
     'skill_cooldowns',v_session.skill_cooldowns,
     'turn_count',     v_session.turn_count
   );

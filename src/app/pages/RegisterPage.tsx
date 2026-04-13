@@ -3,7 +3,6 @@ import { Link, useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { Eye, EyeOff, Crown, AlertCircle, CheckCircle, Shield, Swords } from 'lucide-react';
 import { ImageWithFallback } from '../components/figma/ImageWithFallback';
-import { MagicParticles } from '../components/ui/MagicParticles';
 import { getSupabaseClient } from '../../utils/supabase-client';
 
 function RuneDivider({ label }: { label?: string }) {
@@ -99,8 +98,6 @@ export default function RegisterPage() {
         <div className="absolute inset-0" style={{ background: 'linear-gradient(135deg, rgba(5,0,20,0.92) 0%, rgba(25,0,50,0.88) 50%, rgba(5,0,20,0.95) 100%)' }} />
         <div className="absolute inset-0" style={{ background: 'radial-gradient(ellipse 80% 70% at 50% 30%, rgba(88,28,135,0.2) 0%, transparent 70%)' }} />
       </div>
-
-      <MagicParticles />
 
       {/* ── Register Card ── */}
       <motion.div

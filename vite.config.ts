@@ -11,45 +11,45 @@ import type { Plugin } from 'vite'
 const FIGMA_ASSET_MAP: Record<string, string> = {
   // Characters
   '0d288298f55234e645afbd915a4e01469027b0fa.png':
-    'https://images.unsplash.com/photo-1576497587501-f71f94bef499?w=400&q=80', // male warrior
+    'https://res.cloudinary.com/dhkethrmc/image/upload/f_auto,q_auto/v1772969641/WhatsApp_Image_2026-03-08_at_02.45.48_vzprxp.jpg', // male warrior avatar
   '998d51489ca786ac6d73a705dcfca0031ec6408c.png':
-    'https://images.unsplash.com/photo-1686747517763-f9d694bda04d?w=400&q=80', // female warrior/mage
+    'https://res.cloudinary.com/dhkethrmc/image/upload/f_auto,q_auto/v1772967991/WhatsApp_Image_2026-03-08_at_b02.45.48_myjysa.jpg', // female warrior avatar
   '4770ca651dd0578f6de1ef6c86f54909197d45cb.png':
-    'https://images.unsplash.com/photo-1559116315-702b0b4774ce?w=400&q=80', // body/anatomy model
+    'https://res.cloudinary.com/dhkethrmc/image/upload/f_auto,q_auto/v1772969649/WhatsApp_Image_2026-03-08_at_02.45.47_zffwjl.jpg', // body/anatomy model - equipment background
 
   // World & Scenes
   '76192ffe5cc08b1ad78be5c314ff2153fbc28d6d.png':
-    'https://images.unsplash.com/photo-1691506513931-4740e203d1a0?w=800&q=80', // world map
+    'https://res.cloudinary.com/dhkethrmc/image/upload/f_auto,q_auto/v1772971210/Gemini_Generated_Image_130cxr130cxr130c_apcntr.png', // world map
   'ae028ba374b625e5980bb19e67f15716582dc9ed.png':
-    'https://images.unsplash.com/photo-1602855659964-b351a2d94f74?w=600&q=80', // meditation/temple
+    'https://res.cloudinary.com/dhkethrmc/image/upload/f_auto,q_auto/v1772969649/WhatsApp_Image_2026-03-08_at_02.45.47_zffwjl.jpg', // meditation/temple
 
   // Arena enemies
   'cd9c513007b72d47084accd15367a503756e3ee7.png':
-    'https://images.unsplash.com/photo-1645612803796-24d4f4a5a863?w=400&q=80', // training dummy
+    'https://res.cloudinary.com/dhkethrmc/image/upload/f_auto,q_auto/v1772969717/WhatsApp_Image_2026-03-05_at_11.01.30_ekudga.jpg', // training dummy
   'b078d521c445963cc1f073892adb83151acddc7a.png':
-    'https://images.unsplash.com/photo-1734122373993-36745ac6b688?w=400&q=80', // elite guard / knight
+    'https://res.cloudinary.com/dhkethrmc/image/upload/f_auto,q_auto/v1772969668/elit_yqosxe.png', // shadow dweller / elite enemy
 
   // Weapons
   '33f8542237ebd165d82407ebba5fba13efe9ace6.png':
-    'https://images.unsplash.com/photo-1672672088809-59acb7ad0e3a?w=300&q=80', // wooden sword
+    'https://res.cloudinary.com/dhkethrmc/image/upload/f_auto,q_auto/v1772969711/pedang_kayu_gz6f00.png', // wooden sword
   '02679c625f92f8d51829a5cd5cd9ea58e015a7b3.png':
     'https://images.unsplash.com/photo-1741380350043-2d36b7571d7f?w=300&q=80', // wooden dagger
   '6d0190772e174cc6681726ec7d5970c3ea1fc2c7.png':
-    'https://images.unsplash.com/photo-1747492209325-244e307d387f?w=300&q=80', // wooden bow
+    'https://res.cloudinary.com/dhkethrmc/image/upload/f_auto,q_auto/v1772969703/busur_kayu_p8rpao.png', // wooden bow
   '46421e85081f63043faed33dc80e0b8257d9d658.png':
-    'https://images.unsplash.com/photo-1547629662-7fe7ac16dbf6?w=300&q=80', // wooden staff
+    'https://res.cloudinary.com/dhkethrmc/image/upload/f_auto,q_auto/v1772969700/tongkat_sihir_kayu_xwgtww.png', // wooden staff
 
   // Armors & Shields
   '9041b2fafd4690a5a25156fe365eb52e54d75700.png':
-    'https://images.unsplash.com/photo-1721619171731-11c14f848bed?w=300&q=80', // wooden shield
+    'https://res.cloudinary.com/dhkethrmc/image/upload/f_auto,q_auto/v1772969696/prisai_kayu_wfr2i9.png', // wooden shield
   'e4b701164a5699c3e67b66ab524713018290122f.png':
-    'https://images.unsplash.com/photo-1600081523138-0bae23488dea?w=300&q=80', // leather armor
+    'https://res.cloudinary.com/dhkethrmc/image/upload/f_auto,q_auto/v1772969691/armor_kulit_uggtuq.png', // leather armor
   'dbeb3bc81e2e5bc42ad612200393bebe28bfbf01.png':
-    'https://images.unsplash.com/photo-1615672969032-45c313ae0a2c?w=300&q=80', // leather pants
+    'https://res.cloudinary.com/dhkethrmc/image/upload/f_auto,q_auto/v1772969685/celana_kulit_h989j1.png', // leather pants
   'ac9f6cb3f229f69a68c6372dbc7c501f2166396a.png':
-    'https://images.unsplash.com/photo-1615672969032-45c313ae0a2c?w=300&q=80', // leather boots
+    'https://res.cloudinary.com/dhkethrmc/image/upload/f_auto,q_auto/v1772969680/sepatu_kulit_abrqcg.png', // leather boots
   'd71c2d96757c5e22ffc2b755cb0287bd8bf794e9.png':
-    'https://images.unsplash.com/photo-1689009755226-2b6504a89033?w=300&q=80', // leather helm
+    'https://res.cloudinary.com/dhkethrmc/image/upload/f_auto,q_auto/v1772969659/Gemini_Generated_Image_o43iypo43iypo43i_ttfgxu.png', // leather helm
 }
 
 // ── Vite Plugin: figma:asset → public URL ─────────────────────────────────────

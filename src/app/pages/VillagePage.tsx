@@ -8,43 +8,6 @@ import {
 } from 'lucide-react';
 import { calcDerived } from '../data/statsCalc';
 
-// ─── Floating Leaf ────────────────────────────────────────────────────────────
-function FloatingLeaf({ index }: { index: number }) {
-  const startX = 5 + (index * 17.3) % 90;
-  const delay  = (index * 1.7) % 5;
-  const dur    = 6 + (index * 1.3) % 6;
-  const size   = 10 + (index * 3) % 14;
-  const colors = ['#4ade80','#86efac','#a3e635','#bbf7d0','#d9f99d','#6ee7b7'];
-  const color  = colors[index % colors.length];
-  const rotate = (index % 2 === 0) ? [0, 180, 360] : [0, -180, -360];
-  return (
-    <motion.div
-      className="absolute pointer-events-none select-none"
-      style={{ left: `${startX}%`, top: -30, fontSize: size, color }}
-      initial={{ y: -30, x: 0, opacity: 0 }}
-      animate={{ y: ['0%','120vh'], x: [0, 30*(index%2===0?1:-1), -20*(index%2===0?1:-1), 0], opacity: [0,0.8,0.8,0], rotate }}
-      transition={{ duration: dur, delay, repeat: Infinity, ease: 'linear', times: [0,0.1,0.9,1] }}
-    >
-      {['🍃','🌿','🍀','🌱','🍂','🌾'][index % 6]}
-    </motion.div>
-  );
-}
-
-// ─── Firefly ──────────────────────────────────────────────────────────────────
-function Firefly({ index }: { index: number }) {
-  const x   = 10 + (index * 19.7) % 80;
-  const y   = 20 + (index * 13.3) % 60;
-  const dur = 3 + (index % 3);
-  return (
-    <motion.div
-      className="absolute w-1.5 h-1.5 rounded-full pointer-events-none"
-      style={{ left: `${x}%`, top: `${y}%`, background: '#86efac', boxShadow: '0 0 8px 3px #4ade8080' }}
-      animate={{ x: [0, 20*Math.sin(index), -15*Math.cos(index), 0], y: [0, -20*Math.cos(index), 15*Math.sin(index), 0], opacity: [0,1,0.6,0], scale: [0.5,1.2,0.8,0.5] }}
-      transition={{ duration: dur, delay: index*0.6, repeat: Infinity, ease: 'easeInOut' }}
-    />
-  );
-}
-
 // ─── Accent lookup ────────────────────────────────────────────────────────────
 const ACCENTS: Record<string, { border: string; glow: string; from: string }> = {
   'chief-house': { border: '#10b981', glow: 'rgba(16,185,129,0.35)',  from: '#064e3b' },
@@ -94,6 +57,7 @@ function AccordionRow({
 
   return (
     <motion.div
+      id={`village-building-${building.id}`}
       initial={{ opacity: 0, x: -20 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: 0.35, delay: index * 0.05 }}
@@ -320,11 +284,13 @@ function AccordionRow({
 }
 
 // ─── Background image ─────────────────────────────────────────────────────────
-const BG_IMAGE = 'https://images.unsplash.com/photo-1737878609267-152480e98700?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmYW50YXN5JTIwbWVkaWV2YWwlMjB2aWxsYWdlJTIwbmlnaHQlMjBsYW50ZXJuJTIwZm9nZ3klMjBlbmNoYW50ZWR8ZW58MXx8fHwxNzcyNjI0MTUyfDA&ixlib=rb-4.1.0&q=80&w=1080';
+const BG_IMAGE = 'https://res.cloudinary.com/dhkethrmc/image/upload/f_auto,q_auto/v1772972304/Gemini_Generated_Image_1se74g1se74g1se7_nh8ytk.png';
 
 // ─── Main VillagePage ─────────────────────────────────────────────────────────
 export default function VillagePage() {
-  const { player, updatePlayer } = useGame();
+  const { 
+    player, updatePlayer,
+  } = useGame();
   const navigate = useNavigate();
   const [showHealthyDialog, setShowHealthyDialog] = useState(false);
   const [openId, setOpenId]   = useState<string | null>(null);
@@ -410,7 +376,7 @@ export default function VillagePage() {
       image: 'https://images.unsplash.com/photo-1576020363294-ab5dca00b6f8?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtZWRpZXZhbCUyMGFwb3RoZWNhcnklMjBoZWFsZXIlMjBoZXJiYWxpc3QlMjBzaG9wJTIwZmFudGFzeXxlbnwxfHx8fDE3NzI2OTc2NzN8MA&ixlib=rb-4.1.0&q=80&w=1080',
       route: '/game/village/clinic',
       locked: false,
-      badge: isDead ? '🏥 Diperlukan!' : hpLow ? '⚠️ HP Kritis' : needsHeal ? '💊 HP Kurang' : undefined,
+      badge: isDead ? '���� Diperlukan!' : hpLow ? '⚠️ HP Kritis' : needsHeal ? '💊 HP Kurang' : undefined,
       tags: ['Heal', 'HP', 'Penyembuh'],
       onClickOverride: handleClinicClick,
     },
@@ -483,12 +449,6 @@ export default function VillagePage() {
         <div className="absolute inset-0" style={{ background: 'radial-gradient(ellipse at 50% 40%, rgba(20,83,45,0.2) 0%, transparent 65%)' }} />
         <div className="absolute bottom-0 left-0 right-0 h-40" style={{ background: 'linear-gradient(to bottom, transparent, rgba(2,14,5,0.8))' }} />
         <div className="absolute top-0 left-0 right-0 h-24" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.5), transparent)' }} />
-      </div>
-
-      {/* ── Particles ── */}
-      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
-        {Array.from({ length: 10 }).map((_, i) => <FloatingLeaf key={i} index={i} />)}
-        {Array.from({ length: 8 }).map((_, i) => <Firefly key={i} index={i} />)}
       </div>
 
       {/* ── Page content ── */}

@@ -695,7 +695,7 @@ export default function InventoryModal({ onClose }: InventoryModalProps) {
                   Klik item yang sedang dipakai untuk melihat info &amp; melepasnya
                 </p>
                 <div className="relative mx-auto" style={{ width: 360, height: 420 }}>
-                  {/* Anatomy model */}
+                  {/* Anatomy model - original colors */}
                   <img
                     src={anatomyImg}
                     alt="anatomy"
@@ -703,8 +703,7 @@ export default function InventoryModal({ onClose }: InventoryModalProps) {
                     style={{
                       position: 'absolute', top: 0, left: 0, width: '100%', height: '100%',
                       objectFit: 'contain', objectPosition: 'center',
-                      filter: 'invert(1) sepia(1) saturate(2) hue-rotate(225deg) brightness(0.5)',
-                      mixBlendMode: 'screen', pointerEvents: 'none', userSelect: 'none', zIndex: 1,
+                      pointerEvents: 'none', userSelect: 'none', zIndex: 1,
                     }}
                   />
                   {EQ_SLOTS.map(s => (

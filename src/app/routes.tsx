@@ -19,6 +19,8 @@ import FarmlandPage from "./pages/FarmlandPage";
 import GuildPage from "./pages/GuildPage";
 import RiverPage from "./pages/RiverPage";
 import TownHallPage from "./pages/TownHallPage";
+import InnPage from "./pages/InnPage";
+import MapEditorPage from "./pages/MapEditorPage";
 
 function RootLayout() {
   return (
@@ -33,6 +35,11 @@ export const router = createBrowserRouter([
   {
     path: "admin",
     Component: AdminPage,
+  },
+  // ── Map Editor — standalone tool, no auth required ───────────────────────────
+  {
+    path: "map-editor",
+    Component: MapEditorPage,
   },
 
   // ── Safety redirects for shortened/legacy paths ──────────────────────────────
@@ -59,6 +66,8 @@ export const router = createBrowserRouter([
 
       // ── Halaman diagnostik (bebas diakses) ──────────────────────────────────
       { path: "diagnostic", Component: DiagnosticPage },
+      // inn standalone path — auth-guarded internally via useGame()
+      { path: "inn",        Component: InnPage },
 
       // ── Halaman dalam game (harus sudah login, dijaga oleh GamePage) ─────────
       {
@@ -76,6 +85,8 @@ export const router = createBrowserRouter([
           { path: "village/guild",       Component: GuildPage },
           { path: "village/river",       Component: RiverPage },
           { path: "village/town-hall",   Component: TownHallPage },
+          // ── Tile-based Inn map (auth: dijaga GamePage + useGame) ──────────────
+          { path: "village/inn",         Component: InnPage },
           // Field / area locations — locationId matches worldMapData ids
           { path: "location/:locationId", Component: FieldPage },
         ],

@@ -3,7 +3,6 @@ import { Link, useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { Swords, Shield, Skull, Crown, Sparkles, Star, ChevronRight } from 'lucide-react';
 import { ImageWithFallback } from '../components/figma/ImageWithFallback';
-import { MagicParticles } from '../components/ui/MagicParticles';
 import { HardcoreWarningModal } from '../components/ui/HardcoreWarningModal';
 import { getSupabaseClient } from '../../utils/supabase-client';
 
@@ -108,9 +107,6 @@ export default function LandingPage() {
         <div className="absolute inset-0" style={{ background: 'radial-gradient(ellipse 60% 40% at 20% 80%, rgba(126,34,206,0.12) 0%, transparent 70%)' }} />
         <div className="absolute inset-0" style={{ background: 'radial-gradient(ellipse 60% 40% at 80% 80%, rgba(219,39,119,0.08) 0%, transparent 70%)' }} />
       </div>
-
-      {/* ── Magic Particles ── */}
-      <MagicParticles />
 
       {/* ── Content ── */}
       <div className="relative z-10">

@@ -42,7 +42,49 @@ import maleImg   from 'figma:asset/0d288298f55234e645afbd915a4e01469027b0fa.png'
 import femaleImg from 'figma:asset/998d51489ca786ac6d73a705dcfca0031ec6408c.png';
 import guardImg  from 'figma:asset/b078d521c445963cc1f073892adb83151acddc7a.png';
 
+// ── Enemy Image Map ────────────────────────────────────────────────────────────
+const ENEMY_IMAGE_MAP: Record<string, string> = {
+  wooden_dummy  : 'https://res.cloudinary.com/dhkethrmc/image/upload/f_auto,q_auto/v1772969717/WhatsApp_Image_2026-03-05_at_11.01.30_ekudga.jpg',
+  rookie_guard  : 'https://res.cloudinary.com/dhkethrmc/image/upload/f_auto,q_auto/v1772969716/Gemini_Generated_Image_5840jc5840jc5840_hzd2du.png',
+  veteran_guard : 'https://res.cloudinary.com/dhkethrmc/image/upload/f_auto,q_auto/v1772969675/senior_tguhwh.png',
+  shadow_lurker : 'https://res.cloudinary.com/dhkethrmc/image/upload/f_auto,q_auto/v1772969668/elit_yqosxe.png',
+};
+
 // ── Local Enemy Definitions ────────────────────────────────────────────────────
+
+interface EnemySkill {
+  id               : string;
+  name             : string;
+  icon             : string;
+  damage_mult      : number;
+  is_ultimate      : boolean;
+  probability      : number;       // % chance per turn
+  hit_count?       : number;       // multi-hit
+  buff_description?: string;       // for buff/debuff skills
+  def_penetration? : number;       // % of P DEF ignored
+}
+
+// ── Enemy Full Stats (per Guidelines — 0 for unspecified) ─────────────────────
+interface EnemyFullStats {
+  hp                 : number;
+  p_atk              : number;
+  m_atk              : number;
+  p_def              : number;
+  m_def              : number;
+  accuracy           : number;
+  crit_rate          : number;
+  crit_damage        : number;
+  dodge              : number;
+  crit_dmg_reduction : number;
+  poison_resist      : number;
+  burn_resist        : number;
+  bleed_resist       : number;
+  element_affinity   : string;
+  element_atk        : Record<string, number>;
+  element_def        : Record<string, number>;
+}
+
+const _ZE = { air:0, api:0, angin:0, bumi:0, hutan:0, petir:0, non_element:0, dark:0, cahaya:0 };
 
 export interface LocalEnemy {
   id              : string;
@@ -61,14 +103,7 @@ export interface LocalEnemy {
   description     : string;
   sort_order      : number;
   skills          : EnemySkill[];
-}
-
-interface EnemySkill {
-  id          : string;
-  name        : string;
-  icon        : string;
-  damage_mult : number;
-  is_ultimate : boolean;
+  fullStats?      : EnemyFullStats;
 }
 
 const LOCAL_ENEMIES: LocalEnemy[] = [
@@ -81,39 +116,67 @@ const LOCAL_ENEMIES: LocalEnemy[] = [
     sort_order: 1, skills: [],
   },
   {
-    id: 'rookie_guard', name: 'Penjaga Pemula', battle_name: 'Penjaga Pemula',
-    level: 3, hp: 160, atk: 12, pdef: 8, mdef: 5,
+    id: 'rookie_guard', name: 'Penjaga Desa Pemula', battle_name: 'Penjaga Desa Pemula',
+    level: 3, hp: 100, atk: 10, pdef: 30, mdef: 30,
     reward_exp: 40, reward_gold: 15, is_living: true,
     difficulty: 'Mudah', difficulty_color: '#60a5fa',
-    description: 'Penjaga kerajaan yang masih berlatih. Punya beberapa teknik dasar bertarung.',
+    description: 'Penjaga desa yang masih hijau. Serangan ringan namun mampu bertahan dengan perisai pemula.',
     sort_order: 2,
     skills: [
-      { id: 'guard_slash', name: 'Tebasan Penjaga', icon: '⚔️', damage_mult: 1.3, is_ultimate: false },
+      { id:'normal_attack',        name:'Serangan Normal',       icon:'⚔️',  damage_mult:1.0,  is_ultimate:false, probability:40 },
+      { id:'tusukan_pemula',        name:'Tusukan Pemula',        icon:'🗡️',  damage_mult:1.1,  is_ultimate:false, probability:25 },
+      { id:'angkat_perisai_pemula', name:'Angkat Perisai Pemula', icon:'🛡️',  damage_mult:0,    is_ultimate:false, probability:20, buff_description:'P DEF +20, M DEF +20 selama 2 turn' },
+      { id:'ayunan_tombak_asal',    name:'Ayunan Tombak Asal',    icon:'🏹',  damage_mult:1.15, is_ultimate:false, probability:10 },
+      { id:'tusukan_bertubi_tubi',  name:'Tusukan Bertubi-tubi',  icon:'💥',  damage_mult:0.3,  is_ultimate:true,  probability:5, hit_count:5, def_penetration:50 },
     ],
+    fullStats: {
+      hp:100, p_atk:10, m_atk:0, p_def:30, m_def:30,
+      accuracy:0, crit_rate:0, crit_damage:0, dodge:0, crit_dmg_reduction:0,
+      poison_resist:0, burn_resist:0, bleed_resist:0,
+      element_affinity:'NON-ELEMENT', element_atk:{..._ZE}, element_def:{..._ZE},
+    },
   },
   {
-    id: 'veteran_guard', name: 'Penjaga Veteran', battle_name: 'Penjaga Veteran',
-    level: 10, hp: 360, atk: 28, pdef: 22, mdef: 15,
+    id: 'veteran_guard', name: 'Penjaga Desa Veteran', battle_name: 'Penjaga Desa Veteran',
+    level: 7, hp: 500, atk: 50, pdef: 90, mdef: 90,
     reward_exp: 120, reward_gold: 40, is_living: true,
     difficulty: 'Sedang', difficulty_color: '#fbbf24',
-    description: 'Penjaga berpengalaman dengan pertahanan kuat. Mampu menggunakan Shield Guard.',
+    description: 'Penjaga berpengalaman dengan tombak tangguh. Pertahanan kokoh dan serangan bertubi-tubi.',
     sort_order: 3,
     skills: [
-      { id: 'power_strike', name: 'Pukulan Keras', icon: '💥', damage_mult: 1.5, is_ultimate: false },
-      { id: 'shield_guard', name: 'Tameng Besi',   icon: '🛡️', damage_mult: 0,   is_ultimate: false },
+      { id:'normal_attack',           name:'Serangan Normal',         icon:'⚔️',  damage_mult:1.0,  is_ultimate:false, probability:40 },
+      { id:'tusukan_tombak',          name:'Tusukan Tombak',          icon:'🏹',  damage_mult:1.3,  is_ultimate:false, probability:25 },
+      { id:'angkat_perisai_tangguh',  name:'Angkat Perisai Tangguh',  icon:'🛡️',  damage_mult:0,    is_ultimate:false, probability:20, buff_description:'P DEF +40, M DEF +40 selama 3 turn' },
+      { id:'ayunan_tombak_terukur',   name:'Ayunan Tombak Terukur',   icon:'⚡',  damage_mult:1.4,  is_ultimate:false, probability:10 },
+      { id:'tusukan_bertubi_tubi_v',  name:'Tusukan Bertubi-tubi',    icon:'💥',  damage_mult:0.3,  is_ultimate:true,  probability:5, hit_count:5, def_penetration:50 },
     ],
+    fullStats: {
+      hp:500, p_atk:50, m_atk:0, p_def:90, m_def:90,
+      accuracy:0, crit_rate:0, crit_damage:0, dodge:0, crit_dmg_reduction:0,
+      poison_resist:0, burn_resist:0, bleed_resist:0,
+      element_affinity:'NON-ELEMENT', element_atk:{..._ZE}, element_def:{..._ZE},
+    },
   },
   {
-    id: 'shadow_lurker', name: 'Penghuni Bayangan', battle_name: 'Penghuni Bayangan',
-    level: 20, hp: 620, atk: 55, pdef: 30, mdef: 35,
+    id: 'shadow_lurker', name: 'Penjaga Desa Elit', battle_name: 'Penjaga Desa Elit',
+    level: 17, hp: 1000, atk: 250, pdef: 300, mdef: 300,
     reward_exp: 280, reward_gold: 90, is_living: true,
     difficulty: 'Sulit', difficulty_color: '#f87171',
-    description: 'Makhluk gelap dari dimensi lain. Serangannya cepat dan mematikan.',
+    description: 'Garda terpilih Desa Daun Hijau. Battle cry-nya mengguncang arena — pertahanan baja dan serangan mematikan.',
     sort_order: 4,
     skills: [
-      { id: 'shadow_slash',  name: 'Tebas Bayangan', icon: '🌑', damage_mult: 1.4, is_ultimate: false },
-      { id: 'dark_surge',    name: 'Gelombang Gelap', icon: '💀', damage_mult: 2.2, is_ultimate: true  },
+      { id:'normal_attack',          name:'Serangan Normal',           icon:'⚔️',  damage_mult:1.0,  is_ultimate:false, probability:40 },
+      { id:'tusukan_maut_e',         name:'Tusukan Maut',              icon:'🗡️',  damage_mult:1.5,  is_ultimate:false, probability:25 },
+      { id:'battle_cry',             name:'Battle Cry (Desa Daun)',    icon:'📯',  damage_mult:0,    is_ultimate:false, probability:20, buff_description:'ATK +100, P DEF +300, M DEF +300 selama 3 turn' },
+      { id:'ayunan_kuat',            name:'Ayunan Kuat',               icon:'💀',  damage_mult:1.75, is_ultimate:false, probability:10, def_penetration:20 },
+      { id:'tusukan_kuat_bertubi_v', name:'Tusukan Kuat Bertubi-tubi', icon:'💥',  damage_mult:0.4,  is_ultimate:true,  probability:5,  hit_count:5, def_penetration:50 },
     ],
+    fullStats: {
+      hp:1000, p_atk:250, m_atk:0, p_def:300, m_def:300,
+      accuracy:0, crit_rate:0, crit_damage:0, dodge:0, crit_dmg_reduction:0,
+      poison_resist:0, burn_resist:0, bleed_resist:0,
+      element_affinity:'NON-ELEMENT', element_atk:{..._ZE}, element_def:{..._ZE},
+    },
   },
 ];
 
@@ -285,13 +348,59 @@ function AvatarBorder({ colors, glow, symbol }: { colors: string[]; glow: string
   );
 }
 
+// ── Walking Animation Component ───────────────────────────────────────────────
+// Toggle antara idle dan walk image untuk animasi berjalan
+function WalkingAnimation({ idleSrc, walkSrc, isWalking, flipHorizontal }: {
+  idleSrc: string;
+  walkSrc: string;
+  isWalking: boolean;
+  flipHorizontal?: boolean;
+}) {
+  const [showWalk, setShowWalk] = useState(false);
+  
+  useEffect(() => {
+    if (!isWalking) {
+      setShowWalk(false);
+      return;
+    }
+    
+    // Toggle antara idle dan walk setiap 150ms untuk animasi berjalan
+    const interval = setInterval(() => {
+      setShowWalk(prev => !prev);
+    }, 150);
+    
+    return () => clearInterval(interval);
+  }, [isWalking]);
+  
+  return (
+    <img 
+      src={showWalk ? walkSrc : idleSrc} 
+      alt="character"
+      style={{
+        width: '100%',
+        height: '100%',
+        objectFit: 'contain',
+        objectPosition: 'center',
+        userSelect: 'none',
+        pointerEvents: 'none',
+        filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.5))',
+        transform: flipHorizontal ? 'scaleX(-1)' : undefined,
+      }}
+    />
+  );
+}
+
 // ── Avatar Box ────────────────────────────────────────────────────────────────
 
-function AvatarBox({ src, colors, glow, symbol, isHit, isAttacking, isDefeated, isGuarding, flip }: {
+function AvatarBox({ src, colors, glow, symbol, isHit, isAttacking, isDefeated, isGuarding, flip, isWalking, idleSrc, walkSrc, walkingBack }: {
   src: string; colors: string[]; glow: string; symbol?: string;
   isHit: boolean; isAttacking?: boolean; isDefeated?: boolean; isGuarding?: boolean; flip?: boolean;
+  isWalking?: boolean;
+  idleSrc?: string;
+  walkSrc?: string;
+  walkingBack?: boolean;
 }) {
-  const S = 160;
+  const S = 200;
   return (
     <motion.div
       style={{ position: 'relative', width: S, height: S, transform: flip ? 'scaleX(-1)' : undefined }}
@@ -309,24 +418,33 @@ function AvatarBox({ src, colors, glow, symbol, isHit, isAttacking, isDefeated, 
           boxShadow: '0 0 20px #3b82f688', pointerEvents: 'none', zIndex: 20,
         }} animate={{ opacity: [0.6,1,0.6] }} transition={{ duration: 1.2, repeat: Infinity }} />
       )}
+      {/* Glow effect di belakang sprite */}
       <motion.div style={{
-        position: 'absolute', inset: -12, borderRadius: 20,
+        position: 'absolute', inset: -12,
         background: `radial-gradient(ellipse at center, ${glow}22 0%, transparent 70%)`,
         pointerEvents: 'none',
       }} animate={{ scale:[1,1.08,1], opacity:[0.5,1,0.5] }} transition={{ duration: 3, repeat: Infinity }} />
-      <AvatarBorder colors={colors} glow={glow} symbol={symbol} />
-      <div style={{ position: 'absolute', inset: 6, borderRadius: 9, overflow: 'hidden', background: `linear-gradient(180deg, ${glow}18 0%, #050010 100%)` }}>
-        <img src={src} alt="avatar" style={{ width:'100%', height:'100%', objectFit:'cover', objectPosition:'top center', userSelect:'none', pointerEvents:'none' }} />
-        <div style={{ position:'absolute', bottom:0, left:0, right:0, height:'30%', background:`linear-gradient(0deg, ${glow}44 0%, transparent 100%)`, pointerEvents:'none' }} />
-        <AnimatePresence>
-          {isHit && (
-            <motion.div style={{
-              position:'absolute', inset:0, borderRadius:9,
-              background:'radial-gradient(ellipse at center, rgba(255,60,60,0.75) 0%, rgba(255,0,0,0.3) 100%)',
-              mixBlendMode:'screen', pointerEvents:'none',
-            }} initial={{ opacity:0 }} animate={{ opacity:[0,1,0.6,0] }} transition={{ duration:0.45 }} />
-          )}
-        </AnimatePresence>
+      
+      {/* Sprite dengan efek hit menggunakan drop-shadow sesuai Guidelines rule #10 */}
+      <div style={{ 
+        position: 'relative', 
+        width: '100%', 
+        height: '100%',
+        filter: isHit ? 'drop-shadow(0 0 12px rgba(255,0,0,0.9)) drop-shadow(0 0 20px rgba(255,0,0,0.6)) brightness(1.3) saturate(1.5)' : 'none',
+      }}>
+        {isWalking && idleSrc && walkSrc ? (
+          <WalkingAnimation idleSrc={idleSrc} walkSrc={walkSrc} isWalking={true} flipHorizontal={walkingBack} />
+        ) : (
+          <img src={src} alt="avatar" style={{ 
+            width:'100%', 
+            height:'100%', 
+            objectFit:'contain',
+            objectPosition:'center',
+            userSelect:'none', 
+            pointerEvents:'none',
+            filter: 'drop-shadow(0 4px 8px rgba(0,0,0,0.5))'
+          }} />
+        )}
       </div>
     </motion.div>
   );
@@ -342,19 +460,19 @@ function ActionBtn({ label, icon, subtitle, active, onClick, gradient, glow }: {
     <motion.button onClick={onClick} disabled={!active}
       whileHover={active ? { scale:1.03 } : {}} whileTap={active ? { scale:0.97 } : {}}
       style={{
-        display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:2,
-        padding:'10px 4px', borderRadius:11, border:'none',
+        display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:1,
+        padding:'8px 4px', borderRadius:10, border:'none',
         cursor: active ? 'pointer' : 'not-allowed',
         background: active ? gradient : '#374151',
-        color:'#fff', fontFamily:'serif', fontWeight:800, fontSize:'0.85rem',
+        color:'#fff', fontFamily:'serif', fontWeight:800, fontSize:'0.8rem',
         opacity: active ? 1 : 0.5,
-        boxShadow: active ? `0 4px 18px ${glow}` : 'none',
+        boxShadow: active ? `0 3px 12px ${glow}` : 'none',
         transition:'all 0.2s',
       }}>
       <div style={{ display:'flex', alignItems:'center', gap:5 }}>
         {icon} {label}
       </div>
-      {subtitle && <span style={{ fontSize:'0.55rem', opacity:0.75, fontFamily:'sans-serif', fontWeight:400 }}>{subtitle}</span>}
+      {subtitle && <span style={{ fontSize:'0.5rem', opacity:0.75, fontFamily:'sans-serif', fontWeight:400 }}>{subtitle}</span>}
     </motion.button>
   );
 }
@@ -550,11 +668,33 @@ function EnemySelectScreen({ enemies, onSelect, onBack }: {
                   <p style={{ fontSize:'0.72rem', color:'#9ca3af', margin:'4px 0', lineHeight:1.4 }}>
                     {enemy.description}
                   </p>
-                  <div style={{ display:'flex', gap:12, flexWrap:'wrap', marginTop:6 }}>
+                  {/* Stats row */}
+                  <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginTop:6 }}>
                     <span style={{ fontSize:'0.62rem', color:'#fca5a5' }}>❤️ {enemy.hp} HP</span>
-                    <span style={{ fontSize:'0.62rem', color:'#fb923c' }}>⚔️ {enemy.atk} ATK</span>
-                    <span style={{ fontSize:'0.62rem', color:'#93c5fd' }}>🛡️ {enemy.pdef} DEF</span>
+                    <span style={{ fontSize:'0.62rem', color:'#fb923c' }}>⚔️ {enemy.atk} P.ATK</span>
+                    <span style={{ fontSize:'0.62rem', color:'#93c5fd' }}>🛡️ {enemy.pdef} P.DEF</span>
+                    <span style={{ fontSize:'0.62rem', color:'#818cf8' }}>✨ {enemy.mdef} M.DEF</span>
                   </div>
+                  {/* Skills row */}
+                  {enemy.skills.length > 0 && (
+                    <div style={{ marginTop:8, display:'flex', flexDirection:'column', gap:3 }}>
+                      {(enemy.skills as EnemySkill[]).map(sk => (
+                        <div key={sk.id} style={{ display:'flex', alignItems:'center', gap:6, background:'rgba(255,255,255,0.03)', borderRadius:6, padding:'3px 7px', border:`1px solid ${col}22` }}>
+                          <span style={{ fontSize:'0.7rem' }}>{sk.icon}</span>
+                          <span style={{ fontSize:'0.6rem', color:'#e5e7eb', flex:1 }}>{sk.name}</span>
+                          {sk.buff_description
+                            ? <span style={{ fontSize:'0.55rem', color:'#86efac' }}>{sk.buff_description}</span>
+                            : sk.damage_mult > 0
+                              ? <span style={{ fontSize:'0.6rem', color:'#fbbf24', fontWeight:700 }}>
+                                  {Math.round(sk.damage_mult * 100)}%{sk.hit_count && sk.hit_count > 1 ? ` ×${sk.hit_count}` : ''}
+                                  {sk.def_penetration ? ` (abaikan ${sk.def_penetration}% DEF)` : ''}
+                                </span>
+                              : null}
+                          <span style={{ fontSize:'0.55rem', color:'#6b7280', marginLeft:4, flexShrink:0 }}>{sk.probability}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div style={{ textAlign:'right', flexShrink:0 }}>
                   <div style={{ fontSize:'0.6rem', color:'#6b7280', marginBottom:4 }}>Reward</div>
@@ -601,8 +741,26 @@ function BattleScreen({
   const gt        = playerGender === 'female' ? GENDER_THEME.female
                   : playerGender === 'male'   ? GENDER_THEME.male
                   : GENDER_THEME.default;
-  const avatarSrc = playerGender === 'female' ? femaleImg : maleImg;
-  const enemySrc  = enemy.is_living ? guardImg : dummyImg;
+  
+  // Player sprites - male menggunakan sprite baru dengan 4 state berbeda
+  const playerIdleSprite = playerGender === 'male' 
+    ? 'https://res.cloudinary.com/dhkethrmc/image/upload/f_auto,q_auto/v1773645310/9973a0e6-527c-4559-bdd3-df9a0f63737b.png'
+    : femaleImg;
+  const playerAttackSprite = playerGender === 'male'
+    ? 'https://res.cloudinary.com/dhkethrmc/image/upload/f_auto,q_auto/v1773647104/fad7ddad-fbc3-4a4f-a92d-3f4d260cd7dc.png'
+    : femaleImg;
+  const playerHitSprite = playerGender === 'male'
+    ? 'https://res.cloudinary.com/dhkethrmc/image/upload/f_auto,q_auto/v1773647597/f7a899fe-f683-4518-b4b3-6f4d1040ab3d.png'
+    : femaleImg;
+  const playerWalkSprite = playerGender === 'male'
+    ? 'https://res.cloudinary.com/dhkethrmc/image/upload/f_auto,q_auto/v1773650634/b2f4e5c1-a0b7-4811-80f0-ad056b24a461.png'
+    : femaleImg;
+  // Sprite khusus untuk cast skill non-damage (berdiri diam/idle casting)
+  const playerCastSprite = playerGender === 'male'
+    ? 'https://res.cloudinary.com/dhkethrmc/image/upload/f_auto,q_auto/v1773659018/12e32d21-4a07-41e7-ab9f-5c3b9ab08c22.png'
+    : femaleImg;
+  
+  const enemySrc  = ENEMY_IMAGE_MAP[enemy.id] ?? (enemy.is_living ? guardImg : dummyImg);
   const enemyColors = enemy.is_living ? GUARD_COLORS : DUMMY_COLORS;
   const enemyGlow   = enemy.is_living ? GUARD_GLOW : '#b45309';
   const enemySymbol = enemy.is_living ? '⚔' : '🪵';
@@ -628,6 +786,7 @@ function BattleScreen({
   // ── Buff/Debuff state ──────────────────────────────────────────────────────
   const [playerBuffs,  setPlayerBuffs]  = useState<ActiveBuff[]>([]);
   const [enemyDebuffs, setEnemyDebuffs] = useState<ActiveBuff[]>([]);
+  const [enemyBuffs,   setEnemyBuffs]   = useState<ActiveBuff[]>([]); // buff aktif pada musuh
 
   const [playerAnim,  setPlayerAnim]  = useState(false);
   const [enemyAnim,   setEnemyAnim]   = useState(false);
@@ -635,6 +794,10 @@ function BattleScreen({
   const [enemyHit,    setEnemyHit]    = useState(false);
   const [enemyGuard,  setEnemyGuard]  = useState(false);
   const [endClaimed,  setEndClaimed]  = useState(false);
+  const [logExpanded, setLogExpanded] = useState(false);
+  const [playerWalking, setPlayerWalking] = useState(false); // State untuk animasi berjalan ke musuh
+  const [playerWalkingBack, setPlayerWalkingBack] = useState(false); // State untuk animasi berjalan kembali
+  const [playerCasting, setPlayerCasting] = useState(false); // State untuk cast skill non-damage (idle 2 detik)
 
   const logId   = useRef(2);
   const floatId = useRef(0);
@@ -656,7 +819,7 @@ function BattleScreen({
     setFloats(prev => prev.filter(f => f.id !== id));
   }, []);
 
-  // ── Server-Driven Turn Engine ─────────────────────────────────────────────
+  // ── Server-Driven Turn Engine ─────────────────���───────────────────────────
   // Setiap aksi dikirim ke Supabase RPC process_turn.
   // Server menghitung damage dari stat yang di-snapshot saat start_battle.
   // Client hanya menerima hasil dan menampilkan animasi — tidak ada angka dari client.
@@ -670,8 +833,9 @@ function BattleScreen({
     const token = battleToken;
 
     setPhase('processing');
-    setPlayerAnim(true);
-    setTimeout(() => setPlayerAnim(false), 400);
+    
+    // Sequence animasi: berjalan (2s) → [attack jika ada damage] → berjalan kembali (2s)
+    setPlayerWalking(true);
 
     let result: ProcessTurnResult;
     try {
@@ -730,75 +894,14 @@ function BattleScreen({
       turnsLeft  : b.turns_left,
       losesOnHit : b.loses_on_hit,
     });
-    const newClientBuffs   = result.player_buffs.map(toActiveBuff);
-    const newClientDebuffs = result.enemy_debuffs.map(toActiveBuff);
-
-    // ── Log & animate DOT/HOT results ────────────────────────────────────────
-    if (result.dot_enemy_dmg > 0) {
-      addLog(`🩸 DOT! ${enemy.battle_name} -${result.dot_enemy_dmg} HP dari efek aktif`, 'enemy');
-    }
-    if (result.hot_player_heal > 0) {
-      addLog(`💚 Regenerasi! ${playerName} +${result.hot_player_heal} HP`, 'skill');
-    }
-
-    // ── Log player action ─────────────────────────────────────────────────────
-    if (result.player_dmg > 0) {
-      const sk         = result.skill_id ? getSkillById(result.skill_id) : null;
-      const isMagic    = (sk?.magMultiplier ?? 0) > 0;
-      const hitColor   = result.is_crit ? '#FBBF24' : isMagic ? '#c084fc' : '#F87171';
-      const hits       = result.hit_damages.length > 0 ? result.hit_damages : [result.player_dmg];
-      const isMultiHit = hits.length > 1;
-      const HIT_INTERVAL = 280; // ms between each hit animation
-
-      if (isMultiHit) {
-        // ── Multi-hit: spawn each hit with staggered timing ───────────────────
-        const skIcon = sk?.icon ?? '⚔️';
-        const skName = sk?.name ?? result.skill_id ?? 'Combo';
-        addLog(`${skIcon} ${playerName}: ${skName}! [${hits.length}× COMBO]`, 'skill');
-
-        hits.forEach((dmg, idx) => {
-          setTimeout(() => {
-            spawnFloat(dmg, 'enemy', result.is_crit ? '#FBBF24' : hitColor);
-            setEnemyHit(true);
-            setTimeout(() => setEnemyHit(false), 220);
-            const isCritHit = result.is_crit && idx === hits.length - 1;
-            if (isCritHit) {
-              addLog(`  💥 Hit ${idx + 1}: KRITIS! -${dmg} HP`, 'crit');
-            } else {
-              addLog(`  ⚡ Hit ${idx + 1}: -${dmg} HP`, 'skill');
-            }
-          }, idx * HIT_INTERVAL);
-        });
-
-        // Final combo summary after all hits land
-        setTimeout(() => {
-          addLog(`✦ Total Combo: -${result.player_dmg} HP ke ${enemy.battle_name}!`, result.is_crit ? 'crit' : 'skill');
-        }, hits.length * HIT_INTERVAL);
-
-      } else {
-        // ── Single hit (normal attack or single-hit skill) ────────────────────
-        if (result.is_crit) {
-          addLog(`💥 KRITIS! ${playerName} -${result.player_dmg} HP ke ${enemy.battle_name}!`, 'crit');
-          spawnFloat(result.player_dmg, 'enemy', '#FBBF24');
-        } else if (result.skill_id) {
-          addLog(`${sk?.icon ?? '⚔️'} ${playerName}: ${sk?.name ?? result.skill_id}! -${result.player_dmg} HP`, 'skill');
-          spawnFloat(result.player_dmg, 'enemy', hitColor);
-        } else {
-          addLog(`⚔️ ${playerName} menyerang ${enemy.battle_name}! -${result.player_dmg} HP`, 'player');
-          spawnFloat(result.player_dmg, 'enemy', '#F87171');
-        }
-        setEnemyHit(true);
-        setTimeout(() => setEnemyHit(false), 500);
-      }
-    } else if (action === 'skill' && skillId && result.player_dmg === 0) {
-      const sk = getSkillById(skillId);
-      if (sk) addLog(`${sk.icon} ${playerName} menggunakan ${sk.name}!`, 'skill');
-    }
+    const newClientBuffs      = result.player_buffs.map(toActiveBuff);
+    const newClientDebuffs    = result.enemy_debuffs.map(toActiveBuff);
+    const newClientEnemyBuffs = result.enemy_buffs.map(toActiveBuff);
 
     // ── Update display states (gunakan resolved values, bukan raw result.*) ───
-    setEnemyHp(resolvedEnemyHp);
     setPlayerBuffs(newClientBuffs);
     setEnemyDebuffs(newClientDebuffs);
+    setEnemyBuffs(newClientEnemyBuffs);
     setSkillCds(result.skill_cooldowns);
 
     // ── IMMEDIATE resource update ─────────────────────────────────────────────
@@ -822,31 +925,159 @@ function BattleScreen({
       addLog(`📊 ⚡${resolvedStamina} 💙${resolvedMana}`, 'guard');
     }
 
-    // ── Victory from player action or DOT ────────────────────────────────────
-    if (result.victory && result.enemy_action.type === 'dummy') {
-      // Wooden dummy doesn't have enemy turn, and DOT victory → immediate
-      setEnemyHp(0);
-      setTimeout(() => {
-        setPhase('victory');
-        addLog(`🏆 ${enemy.battle_name} dikalahkan! Kemenangan!`, 'system');
-      }, 400);
-      return;
-    }
-    if (result.victory && resolvedEnemyHp <= 0 && result.enemy_action.dmg === 0 && !result.enemy_action.is_guard) {
-      // Victory before enemy acts (but after DOT tick might have done it)
-      setEnemyHp(0);
-      setTimeout(() => {
-        setPhase('victory');
-        addLog(`🏆 ${enemy.battle_name} dikalahkan! Kemenangan!`, 'system');
-      }, 400);
-      return;
-    }
+    // ── Animation sequence berdasarkan damage ──────────────────────────────────
+    const hasDamage = result.player_dmg > 0;
+    const sk        = result.skill_id ? getSkillById(result.skill_id) : null;
+    const isMagic   = (sk?.magMultiplier ?? 0) > 0;
+    const hitColor  = result.is_crit ? '#FBBF24' : isMagic ? '#c084fc' : '#F87171';
+    const hits      = result.hit_damages.length > 0 ? result.hit_damages : [result.player_dmg];
+    const isMultiHit = hits.length > 1;
+    const HIT_INTERVAL = 280; // ms between each hit animation
 
-    // ── Enemy turn animations ─────────────────────────────────────────────────
-    // For multi-hit skills, wait until all individual hit animations have played
-    // before starting the enemy counter-attack. Single hit keeps the 700ms default.
-    const _multiHits = result.hit_damages.length > 1 ? result.hit_damages.length : 0;
-    const enemyTurnDelay = _multiHits > 0 ? (_multiHits * 280) + 450 : 700;
+    // Evaluasi kemenangan lebih awal — dipakai di closure bawah
+    const willVictory = result.victory && resolvedEnemyHp <= 0;
+
+    // Fase 1: Berjalan ke musuh (2 detik)
+    setTimeout(() => {
+      setPlayerWalking(false);
+
+      if (hasDamage) {
+        // Jika ada damage, lakukan animasi attack
+        setPlayerAnim(true);
+
+        // ── SPAWN DAMAGE saat attack animation (200ms setelah attack start) ────
+        setTimeout(() => {
+          // ── Log & animate DOT/HOT results ────────────────────────────────────
+          if (result.dot_enemy_dmg > 0) {
+            addLog(`🩸 DOT! ${enemy.battle_name} -${result.dot_enemy_dmg} HP dari efek aktif`, 'enemy');
+          }
+          if (result.hot_player_heal > 0) {
+            addLog(`💚 Regenerasi! ${playerName} +${result.hot_player_heal} HP`, 'skill');
+          }
+
+          // ── Log player action & spawn damage ────────────────────────────────
+          if (isMultiHit) {
+            // ── Multi-hit: spawn each hit with staggered timing ─────────────
+            const skIcon = sk?.icon ?? '⚔️';
+            const skName = sk?.name ?? result.skill_id ?? 'Combo';
+            addLog(`${skIcon} ${playerName}: ${skName}! [${hits.length}× COMBO]`, 'skill');
+
+            hits.forEach((dmg, idx) => {
+              setTimeout(() => {
+                spawnFloat(dmg, 'enemy', result.is_crit ? '#FBBF24' : hitColor);
+                setEnemyHit(true);
+                setTimeout(() => setEnemyHit(false), 220);
+                const isCritHit = result.is_crit && idx === hits.length - 1;
+                if (isCritHit) {
+                  addLog(`  💥 Hit ${idx + 1}: KRITIS! -${dmg} HP`, 'crit');
+                } else {
+                  addLog(`  ⚡ Hit ${idx + 1}: -${dmg} HP`, 'skill');
+                }
+              }, idx * HIT_INTERVAL);
+            });
+
+            // Final combo summary after all hits land
+            setTimeout(() => {
+              addLog(`✦ Total Combo: -${result.player_dmg} HP ke ${enemy.battle_name}!`, result.is_crit ? 'crit' : 'skill');
+              setEnemyHp(resolvedEnemyHp);
+            }, hits.length * HIT_INTERVAL);
+
+          } else {
+            // ── Single hit (normal attack or single-hit skill) ──────────────
+            if (result.is_crit) {
+              addLog(`💥 KRITIS! ${playerName} -${result.player_dmg} HP ke ${enemy.battle_name}!`, 'crit');
+              spawnFloat(result.player_dmg, 'enemy', '#FBBF24');
+            } else if (result.skill_id) {
+              addLog(`${sk?.icon ?? '⚔️'} ${playerName}: ${sk?.name ?? result.skill_id}! -${result.player_dmg} HP`, 'skill');
+              spawnFloat(result.player_dmg, 'enemy', hitColor);
+            } else {
+              addLog(`⚔️ ${playerName} menyerang ${enemy.battle_name}! -${result.player_dmg} HP`, 'player');
+              spawnFloat(result.player_dmg, 'enemy', '#F87171');
+            }
+            setEnemyHit(true);
+            setTimeout(() => setEnemyHit(false), 500);
+            setEnemyHp(resolvedEnemyHp);
+          }
+        }, 200); // Damage spawn 200ms setelah attack animation start
+
+        // Selesai attack animation (400ms)
+        setTimeout(() => {
+          setPlayerAnim(false);
+
+          if (willVictory) {
+            // ── LANGSUNG KEMENANGAN: musuh mati, tidak perlu berjalan kembali ──
+            setEnemyHp(0);
+            setPhase('victory');
+            addLog(`🏆 ${enemy.battle_name} dikalahkan! Kemenangan!`, 'system');
+          } else {
+            // Normal: berjalan kembali ke posisi semula
+            setPlayerWalkingBack(true);
+            setTimeout(() => setPlayerWalkingBack(false), 2000);
+          }
+        }, 400); // Durasi attack animation
+
+      } else {
+        // ── SKILL NON-DAMAGE: Berjalan → Idle Cast 2 detik → Berjalan Kembali ──
+        // Tampilkan sprite cast (standing casting pose) selama 2 detik
+
+        // Log skill non-damage
+        if (action === 'skill' && skillId) {
+          const skDef = getSkillById(skillId);
+          if (skDef) addLog(`${skDef.icon} ${playerName} menggunakan ${skDef.name}...`, 'skill');
+        }
+
+        // Aktifkan pose casting
+        setPlayerCasting(true);
+
+        // Saat tengah cast animation (1000ms = midpoint dari 2s), apply buff/heal effects
+        setTimeout(() => {
+          // Apply buff/heal logs disini
+          if (result.hot_player_heal > 0) {
+            addLog(`💚 Heal! ${playerName} +${result.hot_player_heal} HP`, 'skill');
+            spawnFloat(`+${result.hot_player_heal}`, 'player', '#4ade80');
+            setPlayerHp(resolvedPlayerHp);
+          }
+
+          // Log buff yang di-apply
+          if (newClientBuffs.length > 0) {
+            const buffDescs = newClientBuffs.map(b => {
+              if (b.type === 'atk_buff') return `ATK +${b.value}`;
+              if (b.type === 'def_buff') return `DEF +${b.value}`;
+              if (b.type === 'dodge_crit_buff') return `Dodge/Crit +${b.value}%`;
+              if (b.type === 'parry') return `Parry ${b.value}%`;
+              if (b.type === 'reflect_pct') return `Reflect ${b.value}%`;
+              return 'Buff';
+            }).join(', ');
+            addLog(`✨ ${buffDescs} aktif selama ${newClientBuffs[0]?.turnsLeft ?? 0} turn!`, 'skill');
+          }
+        }, 1000); // Effect apply di midpoint cast
+
+        // Selesai cast (2000ms), lalu berjalan kembali atau victory
+        setTimeout(() => {
+          setPlayerCasting(false);
+
+          if (willVictory) {
+            // ── LANGSUNG KEMENANGAN: musuh mati dari DOT/efek, tidak perlu berjalan kembali ──
+            setEnemyHp(0);
+            setPhase('victory');
+            addLog(`🏆 ${enemy.battle_name} dikalahkan! Kemenangan!`, 'system');
+          } else {
+            // Normal: berjalan kembali
+            setPlayerWalkingBack(true);
+            setTimeout(() => setPlayerWalkingBack(false), 2000);
+          }
+        }, 2000); // Durasi idle cast 2 detik
+      }
+    }, 2000); // Durasi walking forward 2 detik
+
+    // ── Jika enemy mati dari aksi player: skip enemy turn ────────────────────
+    if (willVictory) return;
+
+    // ── Enemy turn animations ────────────��────────────────────────────────────
+    // Enemy turn harus menunggu player selesai semua animasi:
+    // Damage:     walk(2s) + attack(0.4s) + walkback(2s) + 0.1s = 4500ms
+    // Non-damage: walk(2s) + cast(2s)    + walkback(2s) + 0.1s = 6100ms
+    const enemyTurnDelay = hasDamage ? 4500 : 6100;
 
     setTimeout(() => {
       setPhase('enemy_turn');
@@ -880,10 +1111,18 @@ function BattleScreen({
         return;
       }
 
-      // Guard action
+      // Guard / Buff action
       if (ea.is_guard) {
         setEnemyGuard(true);
-        addLog(`🛡️ ${enemy.battle_name} menggunakan ${ea.name}!`, 'skill');
+        // Tampilkan ringkasan buff aktif musuh sebagai keterangan skill
+        const newEBufDesc = newClientEnemyBuffs
+          .map(b => {
+            if (b.type === 'enemy_atk_buff')  return `ATK +${b.value}`;
+            if (b.type === 'enemy_pdef_buff') return `P.DEF +${b.value}`;
+            if (b.type === 'enemy_mdef_buff') return `M.DEF +${b.value}`;
+            return '';
+          }).filter(Boolean).join(', ');
+        addLog(`🛡️ ${enemy.battle_name} menggunakan ${ea.name}!${newEBufDesc ? ` (${newEBufDesc})` : ''}`, 'skill');
         setPlayerHp(resolvedPlayerHp);
         // setPlayerStam / setPlayerMana sudah diupdate immediate di atas
         setTimeout(() => {
@@ -906,30 +1145,83 @@ function BattleScreen({
       setTimeout(() => setEnemyAnim(false), 500);
 
       setTimeout(() => {
-        addLog(`${ea.icon} ${enemy.battle_name} menggunakan ${ea.name}!`, ea.is_ultimate ? 'crit' : 'skill');
-
         if (ea.is_dodged) {
+          addLog(`${ea.icon ?? '⚔️'} ${enemy.battle_name} menggunakan ${ea.name}!`, 'skill');
           setPlayerHit(true);
           setTimeout(() => setPlayerHit(false), 400);
           spawnFloat('DODGE', 'player', '#fbbf24');
           addLog(`💨 ${playerName} menghindar!`, 'miss');
         } else if (result.was_parried && ea.dmg === 0) {
+          addLog(`${ea.icon ?? '⚔️'} ${enemy.battle_name} menggunakan ${ea.name}!`, 'skill');
           setPlayerHit(true);
           setTimeout(() => setPlayerHit(false), 400);
           spawnFloat('TANGKIS!', 'player', '#60a5fa');
           addLog(`🔰 TANGKIS SEMPURNA! Serangan ${enemy.battle_name} ditangkis total!`, 'skill');
         } else if (ea.dmg > 0) {
-          setPlayerHit(true);
-          setTimeout(() => setPlayerHit(false), 500);
-          spawnFloat(ea.dmg, 'player', '#fb923c');
           const suffix   = ea.is_ultimate ? ' ⚡ ULTIMATE!' : '';
-          const parryNote = result.parry_reduced > 0 ? ` (tangkis -${result.parry_reduced})` : '';
-          addLog(`${playerName} terkena ${ea.name}!${suffix} -${ea.dmg} HP${parryNote}`, 'enemy');
-          // Reflect
-          if (result.reflect_dmg > 0) {
-            spawnFloat(result.reflect_dmg, 'enemy', '#f0abfc');
-            addLog(`↩️ Pantul! ${result.reflect_dmg} damage dikembalikan ke ${enemy.battle_name}!`, 'skill');
-            setEnemyHp(resolvedEnemyHp); // reflect might kill enemy
+          const hitColor = ea.is_ultimate ? '#f87171' : '#fb923c';
+
+          // ── Multi-hit: animasi setiap hit satu per satu ──────────────────────
+          const eHits      = (ea.hit_damages && ea.hit_damages.length > 1) ? ea.hit_damages : null;
+          const E_HIT_MS   = 280; // ms antar hit
+
+          if (eHits) {
+            // Announce skill dulu
+            addLog(`${ea.icon ?? '⚔️'} ${enemy.battle_name}: ${ea.name}!${suffix} [${eHits.length}× HIT]`, 'enemy');
+
+            eHits.forEach((hitDmg, idx) => {
+              setTimeout(() => {
+                setPlayerHit(true);
+                setTimeout(() => setPlayerHit(false), 220);
+                spawnFloat(hitDmg, 'player', hitColor);
+                addLog(`  💢 Hit ${idx + 1}: -${hitDmg} HP`, 'enemy');
+              }, idx * E_HIT_MS);
+            });
+
+            // Setelah semua hit selesai: update HP + reflect + log total
+            setTimeout(() => {
+              setPlayerHp(resolvedPlayerHp);
+              addLog(`✦ Total serangan: -${ea.dmg} HP${result.parry_reduced > 0 ? ` (tangkis -${result.parry_reduced})` : ''}`, 'enemy');
+
+              if (result.reflect_dmg > 0) {
+                spawnFloat(result.reflect_dmg, 'enemy', '#f0abfc');
+                addLog(`↩️ Pantul! ${result.reflect_dmg} damage dikembalikan ke ${enemy.battle_name}!`, 'skill');
+                setEnemyHp(resolvedEnemyHp);
+              }
+
+              if (result.defeat) {
+                // Player mati dari multi-hit - langsung tampilkan defeat
+                setPhase('defeat');
+                addLog('💀 Kamu gugur dalam pertempuran...', 'system');
+                return;
+              }
+              if (result.victory) {
+                // Enemy mati dari reflect damage - tunggu sebentar lalu victory
+                setTimeout(() => {
+                  setEnemyHp(0);
+                  setPhase('victory');
+                  addLog(`🏆 ${enemy.battle_name} dikalahkan! (Serangan balik)`, 'system');
+                }, 700);
+                return;
+              }
+              setTimeout(() => {
+                setPhase('player_turn');
+                addLog('🎯 Giliranmu — pilih aksimu!', 'system');
+              }, 600);
+            }, eHits.length * E_HIT_MS + 150);
+            return; // early return — flow dilanjutkan di dalam setTimeout atas
+
+          } else {
+            // ── Single hit ────────────────────────────────────────────────────
+            setPlayerHit(true);
+            setTimeout(() => setPlayerHit(false), 500);
+            spawnFloat(ea.dmg, 'player', hitColor);
+            addLog(`${ea.icon ?? '⚔️'} ${enemy.battle_name} menggunakan ${ea.name}!${suffix} -${ea.dmg} HP${result.parry_reduced > 0 ? ` (tangkis -${result.parry_reduced})` : ''}`, 'enemy');
+            if (result.reflect_dmg > 0) {
+              spawnFloat(result.reflect_dmg, 'enemy', '#f0abfc');
+              addLog(`↩️ Pantul! ${result.reflect_dmg} damage dikembalikan ke ${enemy.battle_name}!`, 'skill');
+              setEnemyHp(resolvedEnemyHp);
+            }
           }
         }
 
@@ -937,18 +1229,19 @@ function BattleScreen({
         // setPlayerStam / setPlayerMana sudah diupdate immediate di atas
 
         if (result.defeat) {
-          setTimeout(() => {
-            setPhase('defeat');
-            addLog('💀 Kamu gugur dalam pertempuran...', 'system');
-          }, 500);
+          // Player mati - langsung tampilkan defeat tanpa delay
+          setPhase('defeat');
+          addLog('💀 Kamu gugur dalam pertempuran...', 'system');
           return;
         }
 
         if (result.victory) {
+          // Enemy mati dari reflect damage - tunggu sebentar lalu victory
           setTimeout(() => {
+            setEnemyHp(0);
             setPhase('victory');
             addLog(`🏆 ${enemy.battle_name} dikalahkan! (Serangan balik)`, 'system');
-          }, 400);
+          }, 700);
           return;
         }
 
@@ -972,7 +1265,8 @@ function BattleScreen({
   useEffect(() => {
     if (phase === 'defeat' && battleRef.current.playerHp <= 0) {
       const snap = { ...battleRef.current };
-      const t = setTimeout(() => onEnd('defeat', { hp: snap.playerHp, stamina: snap.stamina, mana: snap.mana }), 2200);
+      // Tunggu animasi defeat selesai (rotate & fade) + waktu untuk pemain melihat status
+      const t = setTimeout(() => onEnd('defeat', { hp: snap.playerHp, stamina: snap.stamina, mana: snap.mana }), 2500);
       return () => clearTimeout(t);
     }
   }, [phase, onEnd]);
@@ -981,16 +1275,30 @@ function BattleScreen({
 
   return (
     <div style={{
-      background:'linear-gradient(170deg, #0d0520 0%, #160835 50%, #08020f 100%)',
-      border:'1.5px solid rgba(168,85,247,0.25)', borderRadius:20, overflow:'hidden',
-      boxShadow:'0 0 60px rgba(168,85,247,0.08), 0 30px 80px rgba(0,0,0,0.95)',
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      right: 0,
+      bottom: 0,
+      zIndex: 9999,
+      display: 'flex',
+      flexDirection: 'column',
+      overflowY: 'auto',
+      overflowX: 'hidden',
+      background: 'linear-gradient(180deg, #0a0212 0%, #12012a 50%, #0d0a1a 100%)',
     }}>
 
       {/* Header */}
       <div style={{
-        background:'linear-gradient(90deg, rgba(127,29,29,0.5), rgba(88,28,135,0.5))',
-        borderBottom:'1px solid rgba(168,85,247,0.2)',
-        padding:'10px 20px', display:'flex', alignItems:'center', justifyContent:'space-between',
+        background:'linear-gradient(90deg, rgba(0,0,0,0.7), rgba(88,28,135,0.6), rgba(0,0,0,0.7))',
+        backdropFilter: 'blur(8px)',
+        padding:'10px 20px', 
+        display:'flex', 
+        alignItems:'center', 
+        justifyContent:'space-between',
+        flexShrink: 0,
+        position: 'relative',
+        zIndex: 1,
       }}>
         <div style={{ display:'flex', alignItems:'center', gap:8 }}>
           <motion.div style={{
@@ -1002,23 +1310,27 @@ function BattleScreen({
             {phase === 'victory'     ? '🏆 KEMENANGAN'
              : phase === 'defeat'   ? '💀 KEKALAHAN'
              : phase === 'player_turn' ? '⚔️ Giliran Pemain'
-             : phase === 'processing'  ? '⏳ Memproses...'
+             : phase === 'processing'  ? '⚡ Melakukan Aksi...'
              : phase === 'enemy_turn'  ? `${enemySymbol} Giliran ${enemy.battle_name}`
-             : '⏳ Memproses...'}
+             : '⚡ Melakukan Aksi...'}
           </span>
         </div>
         <div style={{ display:'flex', flexDirection:'column', alignItems:'flex-end' }}>
           <span style={{ fontSize:'0.6rem', color:'#4b5563', letterSpacing:'0.15em' }}>ARENA LATIHAN</span>
-          <span style={{ fontSize:'0.55rem', color:'#a855f7' }}>⚔️ Battle Engine Lokal</span>
+          <span style={{ fontSize:'0.55rem', color:'#a855f7' }}>⚔️ Figma Engine</span>
         </div>
       </div>
 
       {/* ── Resource Panel: Stamina & Mana di atas battlefield ─────────────── */}
       <div style={{
-        padding:'10px 20px 8px',
-        background:'linear-gradient(90deg, rgba(0,0,0,0.6), rgba(15,5,30,0.7))',
-        borderBottom:'1px solid rgba(168,85,247,0.15)',
-        display:'flex', gap:16,
+        padding:'8px 20px 6px',
+        background:'linear-gradient(90deg, rgba(0,0,0,0.8), rgba(15,5,30,0.85), rgba(0,0,0,0.8))',
+        backdropFilter: 'blur(6px)',
+        display:'flex', 
+        gap:16,
+        flexShrink: 0,
+        position: 'relative',
+        zIndex: 1,
       }}>
         {/* Stamina */}
         <div style={{ flex:1 }}>
@@ -1079,28 +1391,50 @@ function BattleScreen({
 
       {/* Battle Field */}
       <div style={{
-        position:'relative', display:'flex', alignItems:'center', justifyContent:'space-around',
-        padding:'32px 24px 24px',
-        background:'linear-gradient(180deg, #0f172a 0%, #1a0a2e 60%, #0f172a 100%)',
-        borderBottom:'1px solid rgba(168,85,247,0.12)', minHeight:280, gap:12,
+        position: 'relative',
+        flex: '1 0 auto',
+        zIndex: 1,
+        overflow: 'hidden',
+        background: '#07001a',
       }}>
-        <div style={{ position:'absolute', bottom:20, left:'10%', right:'10%', height:1,
-          background:'linear-gradient(90deg, transparent, rgba(168,85,247,0.3), transparent)' }} />
-        <div style={{ position:'absolute', left:'50%', top:'50%', transform:'translate(-50%,-50%)',
-          fontFamily:'serif', fontWeight:900, fontSize:'3.5rem', color:'rgba(255,255,255,0.05)',
-          pointerEvents:'none', letterSpacing:'0.05em', userSelect:'none' }}>VS</div>
-
+        {/* ── Arena background: width:100% natural flow — penuh lebar layar, tidak terpotong ── */}
+        <img
+          src="https://res.cloudinary.com/dhkethrmc/image/upload/f_auto,q_auto/v1773617282/Gemini_Generated_Image_m9hderm9hderm9hd_nye4ts.webp"
+          alt=""
+          aria-hidden="true"
+          style={{
+            display: 'block',
+            width: '100%',
+            height: 'auto',
+            minHeight: 280,
+            pointerEvents: 'none',
+            userSelect: 'none',
+          }}
+        />
+        {/* Vignette atas & bawah — transisi halus ke panel UI */}
+        <div style={{
+          position: 'absolute',
+          inset: 0,
+          zIndex: 1,
+          pointerEvents: 'none',
+          background: 'linear-gradient(to bottom, #07001a 0%, transparent 14%, transparent 88%, #07001a 100%)',
+        }} />
+        {/* ── Karakter overlay: absolute fill seluruh battlefield, karakter di bawah ── */}
+        <div style={{
+          position: 'absolute',
+          inset: 0,
+          display: 'flex',
+          alignItems: 'flex-end',
+          justifyContent: 'space-around',
+          padding: '0 40px 12px',
+          gap: 40,
+          zIndex: 2,
+        }}>
         {/* Player */}
-        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:10, flex:1 }}>
-          <div style={{ width:160, textAlign:'center' }}>
-            <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
-              <span style={{ fontSize:'0.72rem', fontWeight:700, color:gt.colors[1], fontFamily:'serif' }}>{playerName}</span>
-              <span style={{ fontSize:'0.65rem', color:'#6b7280', fontFamily:'monospace' }}>❤️ {playerHp}</span>
-            </div>
-            <HpBar hp={playerHp} maxHp={initState.player_max_hp} color="from-green-500 to-emerald-400" />
-            {/* Active buff indicators */}
-            {playerBuffs.length > 0 && (
-              <div style={{ display:'flex', flexWrap:'wrap', gap:3, justifyContent:'center', marginTop:4 }}>
+        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6, position:'relative', zIndex:2 }}>
+          {/* Active buff indicators */}
+          {playerBuffs.length > 0 && (
+            <div style={{ display:'flex', flexWrap:'wrap', gap:3, justifyContent:'center', marginBottom:4 }}>
                 {playerBuffs.map(b => {
                   const cfg: Record<string, { icon:string; color:string; bg:string }> = {
                     atk_buff       : { icon:'⚔️', color:'#fbbf24', bg:'rgba(120,53,15,0.6)' },
@@ -1125,36 +1459,59 @@ function BattleScreen({
                     </motion.div>
                   );
                 })}
-              </div>
-            )}
-          </div>
-          <div style={{ position:'relative' }}>
-            <AvatarBox src={avatarSrc} colors={gt.colors} glow={gt.glow}
+            </div>
+          )}
+          <motion.div 
+            style={{ 
+              position:'relative',
+            }}
+            animate={{
+              // Tetap di posisi maju selama walking forward, attack, ATAU casting non-damage
+              x: playerWalking ? 80 : playerAnim ? 80 : playerCasting ? 80 : 0,
+            }}
+            transition={{ 
+              duration: playerWalking ? 2.0 : playerWalkingBack ? 2.0 : 0.3,
+              ease: playerWalking ? 'easeOut' : playerWalkingBack ? 'easeIn' : 'easeIn'
+            }}
+          >
+            <AvatarBox 
+              src={
+                playerHit ? playerHitSprite
+                : playerCasting ? playerCastSprite    // Cast non-damage: pose casting diam
+                : playerWalking ? playerIdleSprite    // Walking forward: WalkingAnimation handles toggle
+                : playerWalkingBack ? playerIdleSprite
+                : playerAnim ? playerAttackSprite 
+                : playerIdleSprite
+              } 
+              colors={gt.colors} 
+              glow={gt.glow}
               symbol={playerGender === 'female' ? '♀' : '♂'}
-              isHit={playerHit} isAttacking={playerAnim} />
+              isHit={playerHit} 
+              isAttacking={playerAnim}
+              isDefeated={phase === 'defeat'}
+              isWalking={(playerWalking || playerWalkingBack) && !playerCasting}
+              idleSrc={playerIdleSprite}
+              walkSrc={playerWalkSprite}
+              walkingBack={playerWalkingBack}
+            />
             <div style={{ position:'absolute', top:0, left:0, right:0, height:0, overflow:'visible', zIndex:30 }}>
               {floats.filter(f => f.target === 'player').map(f => (
                 <DamageFloat key={f.id} float={f} onDone={() => removeFloat(f.id)} />
               ))}
             </div>
-          </div>
+          </motion.div>
         </div>
 
         {/* Enemy */}
-        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:10, flex:1 }}>
-          <div style={{ width:160, textAlign:'center' }}>
-            <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
-              <span style={{ fontSize:'0.72rem', fontWeight:700, color:'#fca5a5', fontFamily:'serif' }}>{enemy.battle_name}</span>
-              <span style={{ fontSize:'0.65rem', color:'#6b7280', fontFamily:'monospace' }}>{enemyHp}/{initState.enemy_max_hp}</span>
-            </div>
-            <HpBar hp={enemyHp} maxHp={initState.enemy_max_hp} color="from-red-500 to-orange-400" />
-            {/* Enemy debuff indicators */}
-            {enemyDebuffs.length > 0 && (
+        <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:6, position:'relative', zIndex:2 }}>
+          {/* Enemy debuff and buff indicators */}
+          {enemyDebuffs.length > 0 && (
+            <div style={{ marginBottom:4 }}>
               <div style={{ display:'flex', flexWrap:'wrap', gap:3, justifyContent:'center', marginTop:4 }}>
                 {enemyDebuffs.map(d => {
                   const cfg: Record<string, { icon:string; color:string }> = {
-                    bleed_dot      : { icon:'🩸', color:'#f87171' },
-                    poison_dot     : { icon:'🐍', color:'#4ade80' },
+                    bleed_dot        : { icon:'🩸', color:'#f87171' },
+                    poison_dot       : { icon:'🐍', color:'#4ade80' },
                     enemy_pdef_debuff: { icon:'🎯', color:'#fbbf24' },
                   };
                   const c = cfg[d.type] ?? { icon:'💀', color:'#e2e8f0' };
@@ -1168,16 +1525,38 @@ function BattleScreen({
                     </motion.div>
                   );
                 })}
+                {/* Enemy SELF-buff indicators (Tarik Perisai, Battle Cry, dll) */}
+                {(enemyBuffs.length > 0 || enemyGuard) && (<>
+                {enemyGuard && enemyBuffs.length === 0 && (
+                  <motion.div initial={{ scale:0 }} animate={{ scale:1 }}
+                    style={{ background:'rgba(30,58,138,0.55)', border:'1px solid #60a5fa60', borderRadius:6,
+                      padding:'1px 6px', display:'flex', alignItems:'center', gap:2 }}>
+                    <Shield style={{ width:9, height:9, color:'#60a5fa' }} />
+                    <span style={{ fontSize:'0.55rem', color:'#60a5fa', fontWeight:700 }}>Bertahan</span>
+                  </motion.div>
+                )}
+                {enemyBuffs.map(b => {
+                  const cfg: Record<string, { icon:string; color:string; label:string }> = {
+                    enemy_atk_buff : { icon:'⚔️', color:'#fbbf24', label:`ATK+${b.value}` },
+                    enemy_pdef_buff: { icon:'🛡',  color:'#60a5fa', label:`DEF+${b.value}` },
+                    enemy_mdef_buff: { icon:'✨',  color:'#a78bfa', label:`MDEF+${b.value}` },
+                  };
+                  const c = cfg[b.type] ?? { icon:'💫', color:'#e2e8f0', label:'Buff' };
+                  return (
+                    <motion.div key={b.uid}
+                      initial={{ scale:0 }} animate={{ scale:1 }}
+                      style={{ background:'rgba(0,0,0,0.65)', border:`1px solid ${c.color}60`, borderRadius:6,
+                        padding:'1px 5px', display:'flex', alignItems:'center', gap:2 }}>
+                      <span style={{ fontSize:'0.6rem' }}>{c.icon}</span>
+                      <span style={{ fontSize:'0.55rem', color:c.color, fontWeight:700 }}>{c.label}</span>
+                      <span style={{ fontSize:'0.5rem', color:'#6b7280' }}>{b.turnsLeft}T</span>
+                    </motion.div>
+                  );
+                })}
+                </>)}
               </div>
-            )}
-            {enemyGuard && (
-              <motion.div initial={{ opacity:0, y:4 }} animate={{ opacity:1, y:0 }}
-                style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:4, marginTop:4 }}>
-                <Shield style={{ width:11, height:11, color:'#60a5fa' }} />
-                <span style={{ fontSize:'0.6rem', color:'#60a5fa' }}>Shield Guard Aktif!</span>
-              </motion.div>
-            )}
-          </div>
+            </div>
+          )}
           <div style={{ position:'relative' }}>
             <AvatarBox src={enemySrc} colors={enemyColors} glow={enemyGlow}
               symbol={enemySymbol}
@@ -1215,82 +1594,231 @@ function BattleScreen({
             </motion.div>
           )}
         </AnimatePresence>
+        </div>{/* end character overlay */}
+      </div>{/* end battlefield */}
 
-        {/* Turn indicator */}
+      {/* HP Bars Panel */}
+      <div style={{
+        padding:'6px 20px 8px',
+        background:'linear-gradient(90deg, rgba(0,0,0,0.8), rgba(15,5,30,0.85), rgba(0,0,0,0.8))',
+        backdropFilter: 'blur(6px)',
+        display:'flex', 
+        gap:16,
+        flexShrink: 0,
+        position: 'relative',
+        zIndex: 1,
+      }}>
+        <div style={{ flex:1 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+            <span style={{ fontSize:'0.65rem', color:gt.colors[1], fontFamily:'serif', fontWeight:700 }}>❤️ {playerName}</span>
+            <motion.span key={playerHp} initial={{ scale:1.2 }} animate={{ scale:1 }} transition={{ duration:0.3 }} style={{ fontSize:'0.7rem', fontWeight:900, fontFamily:'monospace', color:'#4ade80' }}>
+              {playerHp}/{initState.player_max_hp}
+            </motion.span>
+          </div>
+          <div style={{ height:8, background:'rgba(31,41,55,0.9)', borderRadius:99, overflow:'hidden', border:'1px solid rgba(74,222,128,0.2)' }}>
+            <HpBar hp={playerHp} maxHp={initState.player_max_hp} color="from-green-500 to-emerald-400" />
+          </div>
+        </div>
+        <div style={{ flex:1 }}>
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:4 }}>
+            <span style={{ fontSize:'0.65rem', color:'#fca5a5', fontFamily:'serif', fontWeight:700 }}>⚔️ {enemy.battle_name}</span>
+            <motion.span key={enemyHp} initial={{ scale:1.2 }} animate={{ scale:1 }} transition={{ duration:0.3 }} style={{ fontSize:'0.7rem', fontWeight:900, fontFamily:'monospace', color:'#f87171' }}>
+              {enemyHp}/{initState.enemy_max_hp}
+            </motion.span>
+          </div>
+          <div style={{ height:8, background:'rgba(31,41,55,0.9)', borderRadius:99, overflow:'hidden', border:'1px solid rgba(248,113,113,0.2)' }}>
+            <HpBar hp={enemyHp} maxHp={initState.enemy_max_hp} color="from-red-500 to-orange-400" />
+          </div>
+        </div>
+      </div>
+
+      {/* ── Bottom section wrapper — log overlay tumbuh ke ATAS dari sini ──────── */}
+      <div style={{ position: 'relative', flexShrink: 0, zIndex: 1 }}>
+
+        {/* Log Expanded Overlay: position absolute, bottom 100% = tumbuh ke atas menutupi battlefield */}
         <AnimatePresence>
-          {phase === 'player_turn' && (
-            <motion.div style={{
-              position:'absolute', bottom:10, left:'50%', transform:'translateX(-50%)',
-              background:'rgba(120,53,15,0.85)', border:'1px solid rgba(251,191,36,0.5)',
-              borderRadius:20, padding:'4px 16px', fontSize:'0.72rem', fontWeight:700, color:'#fff',
-              backdropFilter:'blur(4px)', whiteSpace:'nowrap',
-            }} initial={{ opacity:0, y:10 }} animate={{ opacity:1, y:0 }} exit={{ opacity:0, y:10 }}>
-              ⚔️ Giliranmu!
+          {logExpanded && (
+            <motion.div
+              key="log-overlay"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.28, ease: 'easeOut' }}
+              style={{
+                position: 'absolute',
+                bottom: '100%',
+                left: 0,
+                right: 0,
+                zIndex: 60,
+                overflow: 'hidden',
+                background: 'linear-gradient(180deg, rgba(5,0,20,0.45) 0%, rgba(10,2,30,0.75) 100%)',
+                backdropFilter: 'blur(20px)',
+                WebkitBackdropFilter: 'blur(20px)',
+                borderTop: '1px solid rgba(168,85,247,0.35)',
+                borderBottom: '1px solid rgba(168,85,247,0.2)',
+                boxShadow: '0 -8px 40px rgba(88,28,135,0.2)',
+              }}
+            >
+              <div
+                style={{
+                  padding: '10px 12px',
+                  maxHeight: 220,
+                  overflowY: 'auto',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: 4,
+                }}
+                className="battle-log-scroll"
+              >
+                <AnimatePresence initial={false}>
+                  {log.map(entry => (
+                    <motion.div key={entry.id}
+                      initial={{ opacity: 0, x: -8, height: 0 }}
+                      animate={{ opacity: 1, x: 0, height: 'auto' }}
+                      transition={{ duration: 0.2 }}
+                      style={{
+                        fontSize: '0.68rem',
+                        lineHeight: 1.5,
+                        color: entry.type === 'player' ? '#c4b5fd'
+                             : entry.type === 'enemy'  ? '#fca5a5'
+                             : entry.type === 'crit'   ? '#fbbf24'
+                             : entry.type === 'skill'  ? '#f9a8d4'
+                             : entry.type === 'guard'  ? '#93c5fd'
+                             : entry.type === 'miss'   ? '#6b7280'
+                             : entry.type === 'error'  ? '#f87171'
+                             : '#94a3b8',
+                        fontStyle: entry.type === 'miss' ? 'italic' : 'normal',
+                        fontWeight: entry.type === 'crit' || entry.type === 'skill' ? 800 : 400,
+                      }}
+                    >{entry.text}</motion.div>
+                  ))}
+                </AnimatePresence>
+              </div>
             </motion.div>
           )}
         </AnimatePresence>
-      </div>
 
-      {/* Battle Log */}
-      <div style={{ margin:'0 20px 16px', background:'rgba(0,0,0,0.5)', border:'1px solid rgba(255,255,255,0.07)', borderRadius:12, overflow:'hidden' }}>
-        <div style={{ padding:'6px 12px', borderBottom:'1px solid rgba(255,255,255,0.05)', display:'flex', alignItems:'center', justifyContent:'space-between' }}>
-          <span style={{ fontSize:'0.6rem', color:'#4b5563', letterSpacing:'0.18em', textTransform:'uppercase', fontWeight:700 }}>✦ Log Pertarungan ✦</span>
+        {/* Log Toggle Tab — selalu di layout, tidak bergerak */}
+        <div style={{
+          borderTop: '1px solid rgba(168,85,247,0.4)',
+          background: logExpanded
+            ? 'linear-gradient(90deg, rgba(88,28,135,0.45), rgba(0,0,0,0.65))'
+            : 'linear-gradient(90deg, rgba(88,28,135,0.25), rgba(0,0,0,0.5))',
+          backdropFilter: 'blur(8px)',
+        }}>
+          <motion.div
+            onClick={() => setLogExpanded(!logExpanded)}
+            whileHover={{ background: 'linear-gradient(90deg, rgba(88,28,135,0.5), rgba(0,0,0,0.35))' }}
+            style={{
+              padding: '7px 12px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              cursor: 'pointer',
+              userSelect: 'none',
+              transition: 'background 0.2s ease',
+            }}
+          >
+            <span style={{ fontSize: '0.6rem', color: '#a855f7', letterSpacing: '0.12em', textTransform: 'uppercase', fontWeight: 700, display: 'flex', alignItems: 'center', gap: 6 }}>
+              <motion.span
+                animate={{ rotate: logExpanded ? [0, -10, 10, 0] : 0 }}
+                transition={{ duration: 0.4 }}
+                style={{ fontSize: '0.85rem', display: 'inline-block' }}
+              >📜</motion.span>
+              {logExpanded ? 'Tutup Log' : 'Buka Log Battle'}
+            </span>
+            <motion.span
+              animate={{ rotate: logExpanded ? 0 : 180 }}
+              transition={{ duration: 0.25 }}
+              style={{ fontSize: '0.75rem', color: '#a855f7' }}
+            >
+              ▼
+            </motion.span>
+          </motion.div>
         </div>
-        <div style={{ padding:12, maxHeight:130, overflowY:'auto', display:'flex', flexDirection:'column', gap:5 }}>
-          <AnimatePresence initial={false}>
-            {log.map(entry => (
-              <motion.div key={entry.id}
-                initial={{ opacity:0, x:-8, height:0 }} animate={{ opacity:1, x:0, height:'auto' }} transition={{ duration:0.22 }}
-                style={{
-                  fontSize:'0.72rem', lineHeight:1.5,
-                  color: entry.type === 'player' ? '#c4b5fd'
-                       : entry.type === 'enemy'  ? '#fca5a5'
-                       : entry.type === 'crit'   ? '#fbbf24'
-                       : entry.type === 'skill'  ? '#f9a8d4'
-                       : entry.type === 'guard'  ? '#93c5fd'
-                       : entry.type === 'miss'   ? '#6b7280'
-                       : entry.type === 'error'  ? '#f87171'
-                       : '#94a3b8',
-                  fontStyle: entry.type === 'miss' ? 'italic' : 'normal',
-                  fontWeight: entry.type === 'crit' || entry.type === 'skill' ? 800 : 400,
-                }}
-              >{entry.text}</motion.div>
-            ))}
-          </AnimatePresence>
-        </div>
-      </div>
 
-      {/* Actions / Result */}
-      <div style={{ padding:'0 20px 24px' }}>
+        {/* Actions / Result */}
+        <div style={{
+          padding: '0 20px 16px',
+          overflowY: 'auto',
+        }}>
         <AnimatePresence mode="wait">
 
           {/* Victory */}
           {phase === 'victory' && (
             <motion.div key="victory"
-              initial={{ opacity:0, scale:0.9 }} animate={{ opacity:1, scale:1 }}
-              style={{ textAlign:'center', background:'linear-gradient(135deg, rgba(120,53,15,0.3), rgba(20,83,45,0.3))',
-                border:'1.5px solid rgba(251,191,36,0.4)', borderRadius:14, padding:24 }}>
-              <div style={{ fontSize:'3rem', marginBottom:8 }}>🏆</div>
-              <h3 style={{ fontFamily:'serif', fontWeight:900, color:'#fbbf24', fontSize:'1.5rem', marginBottom:4 }}>KEMENANGAN!</h3>
-              <p style={{ color:'#9ca3af', fontSize:'0.82rem', marginBottom:16 }}>
-                {enemy.battle_name} dikalahkan!
-              </p>
-              <div style={{ display:'flex', justifyContent:'center', gap:16, marginBottom:20 }}>
-                <div style={{ background:'rgba(88,28,135,0.3)', border:'1px solid rgba(168,85,247,0.4)', borderRadius:10, padding:'10px 24px' }}>
-                  <p style={{ fontSize:'0.62rem', color:'#6b7280', marginBottom:2 }}>EXP</p>
-                  <p style={{ fontFamily:'serif', fontWeight:800, color:'#c4b5fd', fontSize:'1.3rem' }}>+{enemy.reward_exp}</p>
-                </div>
-                <div style={{ background:'rgba(120,53,15,0.3)', border:'1px solid rgba(251,191,36,0.4)', borderRadius:10, padding:'10px 24px' }}>
-                  <p style={{ fontSize:'0.62rem', color:'#6b7280', marginBottom:2 }}>Gold</p>
-                  <p style={{ fontFamily:'serif', fontWeight:800, color:'#fbbf24', fontSize:'1.3rem' }}>+{enemy.reward_gold} 🪙</p>
+              initial={{ opacity:0, y:10 }}
+              animate={{ opacity:1, y:0 }}
+              transition={{ duration:0.3 }}
+              style={{
+                background:'linear-gradient(160deg, rgba(88,28,135,0.25), rgba(5,5,25,0.6))',
+                border:'1px solid rgba(168,85,247,0.3)',
+                borderRadius:12,
+                padding:'14px 16px',
+                backdropFilter:'blur(16px)',
+              }}>
+
+              {/* Header dengan icon dan title compact */}
+              <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12, paddingBottom:10, borderBottom:'1px solid rgba(168,85,247,0.15)' }}>
+                <motion.div
+                  animate={{ rotate:[0,10,-10,0], scale:[1,1.1,1] }}
+                  transition={{ duration:2, repeat:Infinity, ease:'easeInOut' }}
+                  style={{ fontSize:'1.6rem', filter:'drop-shadow(0 0 8px rgba(251,191,36,0.6))' }}
+                >
+                  🏆
+                </motion.div>
+                <div style={{ flex:1 }}>
+                  <h3 style={{
+                    fontFamily:'serif',
+                    fontWeight:800,
+                    fontSize:'1rem',
+                    marginBottom:2,
+                    background:'linear-gradient(90deg, #e9d5ff, #c084fc)',
+                    WebkitBackgroundClip:'text',
+                    WebkitTextFillColor:'transparent',
+                    backgroundClip:'text',
+                  }}>Kemenangan!</h3>
+                  <p style={{ color:'#9ca3af', fontSize:'0.68rem', fontStyle:'italic' }}>
+                    {enemy.battle_name} dikalahkan
+                  </p>
                 </div>
               </div>
+
+              {/* Rewards - inline compact */}
+              <div style={{ display:'flex', gap:8, marginBottom:12 }}>
+                <div style={{
+                  flex:1,
+                  background:'rgba(168,85,247,0.08)',
+                  border:'1px solid rgba(168,85,247,0.25)',
+                  borderRadius:8,
+                  padding:'8px 12px',
+                  display:'flex',
+                  alignItems:'center',
+                  justifyContent:'space-between',
+                }}>
+                  <span style={{ fontSize:'0.62rem', color:'#a78bfa', letterSpacing:'0.05em' }}>EXP</span>
+                  <span style={{ fontFamily:'serif', fontWeight:800, color:'#c4b5fd', fontSize:'0.95rem' }}>+{enemy.reward_exp}</span>
+                </div>
+                <div style={{
+                  flex:1,
+                  background:'rgba(251,191,36,0.08)',
+                  border:'1px solid rgba(251,191,36,0.25)',
+                  borderRadius:8,
+                  padding:'8px 12px',
+                  display:'flex',
+                  alignItems:'center',
+                  justifyContent:'space-between',
+                }}>
+                  <span style={{ fontSize:'0.62rem', color:'#fbbf24', letterSpacing:'0.05em' }}>GOLD</span>
+                  <span style={{ fontFamily:'serif', fontWeight:800, color:'#fde68a', fontSize:'0.95rem' }}>+{enemy.reward_gold}</span>
+                </div>
+              </div>
+
+              {/* Button compact */}
               <motion.button
                 onClick={() => {
                   if (endClaimed) return;
                   setEndClaimed(true);
-                  // SERVER-SIDE v2: Victory sudah divalidasi server.
-                  // claim_battle_reward hanya butuh token — tidak ada data dari client.
                   const snap = { ...battleRef.current };
                   onEnd('victory',
                     { hp: snap.playerHp, stamina: snap.stamina, mana: snap.mana },
@@ -1298,14 +1826,26 @@ function BattleScreen({
                   );
                 }}
                 disabled={endClaimed}
-                whileHover={endClaimed ? {} : { scale:1.03 }}
-                whileTap={endClaimed ? {} : { scale:0.97 }}
-                style={{ width:'100%', padding:'12px 0',
-                  background: endClaimed ? '#374151' : 'linear-gradient(90deg, #b45309, #16a34a)',
-                  borderRadius:10, border:'none',
+                whileHover={endClaimed ? {} : { scale:1.02, boxShadow:'0 0 20px rgba(168,85,247,0.4)' }}
+                whileTap={endClaimed ? {} : { scale:0.98 }}
+                style={{
+                  width:'100%',
+                  padding:'10px 0',
+                  background: endClaimed
+                    ? 'rgba(75,85,99,0.3)'
+                    : 'linear-gradient(135deg, #7c3aed, #a855f7)',
+                  borderRadius:8,
+                  border:`1px solid ${endClaimed ? 'rgba(75,85,99,0.4)' : 'rgba(168,85,247,0.5)'}`,
                   cursor: endClaimed ? 'not-allowed' : 'pointer',
-                  color:'#fff', fontWeight:800, fontSize:'1rem', fontFamily:'serif', opacity: endClaimed ? 0.65 : 1 }}>
-                {endClaimed ? '✅ Menyimpan...' : 'Kembali ke Arena'}
+                  color: endClaimed ? '#6b7280' : '#fff',
+                  fontWeight:700,
+                  fontSize:'0.85rem',
+                  fontFamily:'serif',
+                  letterSpacing:'0.03em',
+                  boxShadow: endClaimed ? 'none' : '0 0 12px rgba(168,85,247,0.3)',
+                  transition:'all 0.2s ease',
+                }}>
+                {endClaimed ? '🧹 Membersihkan Arena...' : '← Kembali ke Arena'}
               </motion.button>
             </motion.div>
           )}
@@ -1313,26 +1853,69 @@ function BattleScreen({
           {/* Defeat */}
           {phase === 'defeat' && (
             <motion.div key="defeat"
-              initial={{ opacity:0, scale:0.9 }} animate={{ opacity:1, scale:1 }}
-              style={{ textAlign:'center', background:'rgba(127,29,29,0.3)',
-                border:'1.5px solid rgba(239,68,68,0.4)', borderRadius:14, padding:24 }}>
-              <div style={{ fontSize:'3rem', marginBottom:8 }}>💀</div>
-              <h3 style={{ fontFamily:'serif', fontWeight:900, color:'#f87171', fontSize:'1.5rem', marginBottom:4 }}>GUGUR!</h3>
+              initial={{ opacity:0, y:10 }}
+              animate={{ opacity:1, y:0 }}
+              transition={{ duration:0.3 }}
+              style={{
+                background:'linear-gradient(160deg, rgba(127,29,29,0.25), rgba(5,5,25,0.6))',
+                border:'1px solid rgba(239,68,68,0.3)',
+                borderRadius:12,
+                padding:'14px 16px',
+                backdropFilter:'blur(16px)',
+              }}>
+
+              {/* Header compact */}
+              <div style={{ display:'flex', alignItems:'center', gap:10, marginBottom:12, paddingBottom:10, borderBottom:'1px solid rgba(239,68,68,0.15)' }}>
+                <motion.div
+                  animate={{ opacity:[0.6,1,0.6] }}
+                  transition={{ duration:1.5, repeat:Infinity }}
+                  style={{ fontSize:'1.6rem', filter:'drop-shadow(0 0 8px rgba(239,68,68,0.6))' }}
+                >
+                  💀
+                </motion.div>
+                <div style={{ flex:1 }}>
+                  <h3 style={{
+                    fontFamily:'serif',
+                    fontWeight:800,
+                    fontSize:'1rem',
+                    marginBottom:2,
+                    background:'linear-gradient(90deg, #fca5a5, #f87171)',
+                    WebkitBackgroundClip:'text',
+                    WebkitTextFillColor:'transparent',
+                    backgroundClip:'text',
+                  }}>Gugur!</h3>
+                  <p style={{ color:'#9ca3af', fontSize:'0.68rem', fontStyle:'italic' }}>
+                    {playerHp <= 0 ? 'HP habis sepenuhnya' : `HP tersisa: ${playerHp}`}
+                  </p>
+                </div>
+              </div>
+
+              {/* Content */}
               {playerHp <= 0 ? (
                 <>
-                  <p style={{ color:'#fca5a5', fontSize:'0.85rem', marginBottom:8 }}>HP kamu habis sepenuhnya...</p>
-                  <p style={{ color:'#9ca3af', fontSize:'0.78rem', marginBottom:16 }}>
-                    🏥 Kamu akan dibawa ke Klinik Desa untuk pemulihan.
-                  </p>
-                  <motion.div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}
-                    animate={{ opacity:[0.5,1,0.5] }} transition={{ duration:1, repeat:Infinity }}>
-                    <p style={{ fontSize:'0.75rem', color:'#f87171' }}>⏳ Menuju Klinik Desa...</p>
+                  <div style={{
+                    background:'rgba(239,68,68,0.08)',
+                    border:'1px solid rgba(239,68,68,0.25)',
+                    borderRadius:8,
+                    padding:'10px 12px',
+                    marginBottom:12,
+                  }}>
+                    <p style={{ fontSize:'0.72rem', color:'#fca5a5', lineHeight:1.5 }}>
+                      🏥 Kamu akan dibawa ke Klinik Desa untuk pemulihan darurat.
+                    </p>
+                  </div>
+                  <motion.div
+                    animate={{ opacity:[0.5,1,0.5] }}
+                    transition={{ duration:1.2, repeat:Infinity }}
+                    style={{ textAlign:'center', padding:'8px', fontSize:'0.72rem', color:'#f87171' }}
+                  >
+                    ⏳ Menuju Klinik Desa...
                   </motion.div>
                 </>
               ) : (
                 <>
-                  <p style={{ color:'#9ca3af', fontSize:'0.82rem', marginBottom:20 }}>
-                    Kamu kalah tapi masih hidup dengan <span style={{ color:'#f87171', fontWeight:700 }}>{playerHp} HP</span> tersisa.
+                  <p style={{ color:'#9ca3af', fontSize:'0.72rem', lineHeight:1.5, marginBottom:12, textAlign:'center' }}>
+                    Kamu kalah dalam pertempuran kali ini.
                   </p>
                   <motion.button
                     onClick={() => {
@@ -1342,13 +1925,26 @@ function BattleScreen({
                       onEnd('defeat', { hp: snap.playerHp, stamina: snap.stamina, mana: snap.mana });
                     }}
                     disabled={endClaimed}
-                    whileHover={endClaimed ? {} : { scale:1.03 }} whileTap={endClaimed ? {} : { scale:0.97 }}
-                    style={{ width:'100%', padding:'12px 0',
-                      background: endClaimed ? '#374151' : 'linear-gradient(90deg, #7f1d1d, #991b1b)',
-                      borderRadius:10, border:'none',
-                      cursor: endClaimed ? 'not-allowed' : 'pointer', color:'#fff',
-                      fontWeight:800, fontSize:'1rem', fontFamily:'serif' }}>
-                    Kembali ke Arena
+                    whileHover={endClaimed ? {} : { scale:1.02, boxShadow:'0 0 20px rgba(239,68,68,0.4)' }}
+                    whileTap={endClaimed ? {} : { scale:0.98 }}
+                    style={{
+                      width:'100%',
+                      padding:'10px 0',
+                      background: endClaimed
+                        ? 'rgba(75,85,99,0.3)'
+                        : 'linear-gradient(135deg, #991b1b, #dc2626)',
+                      borderRadius:8,
+                      border:`1px solid ${endClaimed ? 'rgba(75,85,99,0.4)' : 'rgba(239,68,68,0.5)'}`,
+                      cursor: endClaimed ? 'not-allowed' : 'pointer',
+                      color: endClaimed ? '#6b7280' : '#fff',
+                      fontWeight:700,
+                      fontSize:'0.85rem',
+                      fontFamily:'serif',
+                      letterSpacing:'0.03em',
+                      boxShadow: endClaimed ? 'none' : '0 0 12px rgba(239,68,68,0.3)',
+                      transition:'all 0.2s ease',
+                    }}>
+                    {endClaimed ? '🧹 Membersihkan Arena...' : '← Kembali ke Arena'}
                   </motion.button>
                 </>
               )}
@@ -1358,7 +1954,7 @@ function BattleScreen({
           {/* Actions */}
           {(phase === 'player_turn' || phase === 'processing' || phase === 'enemy_turn') && (
             <motion.div key="actions" initial={{ opacity:0 }} animate={{ opacity:1 }}>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8 }}>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, marginBottom:6 }}>
                 <ActionBtn
                   label="Serang" icon={<Sword style={{ width:16, height:16 }} />}
                   subtitle="Serangan fisik dasar"
@@ -1373,7 +1969,7 @@ function BattleScreen({
                   active={isActive} onClick={() => handleSkill('skill1')}
                 />
               </div>
-              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:8, marginBottom:8 }}>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:6, marginBottom:6 }}>
                 <SkillBtn
                   slotKey="skill2" slotLabel="Skill 2" slotIcon="②"
                   skillSlots={skillSlots} stamina={playerStam} mana={playerMana}
@@ -1387,7 +1983,7 @@ function BattleScreen({
                   active={isActive} onClick={() => handleSkill('skill3')}
                 />
               </div>
-              <div style={{ marginBottom:8 }}>
+              <div style={{ marginBottom:6 }}>
                 <SkillBtn
                   slotKey="ultimate" slotLabel="Ultimate" slotIcon="⭐"
                   skillSlots={skillSlots} stamina={playerStam} mana={playerMana}
@@ -1400,6 +1996,7 @@ function BattleScreen({
             </motion.div>
           )}
         </AnimatePresence>
+        </div>
       </div>
     </div>
   );

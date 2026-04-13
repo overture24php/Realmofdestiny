@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useGame } from '../contexts/GameContext';
 import { motion, AnimatePresence } from 'motion/react';
-import { ArrowLeft, CheckCircle, Swords, Shield, Sparkles, Star, Gift } from 'lucide-react';
+import { ArrowLeft, CheckCircle, Swords, Shield, Sparkles, Star, Gift, PlayCircle } from 'lucide-react';
 import { ImageWithFallback } from '../components/figma/ImageWithFallback';
 
 // ─── Rune particle ────────────────────────────────────────────────────────────
@@ -33,9 +33,10 @@ interface MissionCardProps {
   done    : boolean;
   active  : boolean;
   icon    : React.ReactNode;
+  onExecute?: () => void; // Handler untuk tombol "Kerjakan"
 }
 
-function MissionCard({ number, title, desc, reward, done, active, icon }: MissionCardProps) {
+function MissionCard({ number, title, desc, reward, done, active, icon, onExecute }: MissionCardProps) {
   return (
     <motion.div
       initial={{ opacity:0, x:-16 }}
@@ -103,6 +104,31 @@ function MissionCard({ number, title, desc, reward, done, active, icon }: Missio
             <span style={{ fontSize:'0.62rem', color:'#fbbf24', letterSpacing:'0.04em' }}>{reward}</span>
           </div>
         )}
+
+        {/* Tombol Kerjakan untuk misi aktif */}
+        {active && !done && onExecute && (
+          <motion.button
+            onClick={onExecute}
+            initial={{ opacity: 0, y: 5 }}
+            animate={{ opacity: 1, y: 0 }}
+            whileHover={{ scale: 1.05, boxShadow: '0 0 20px rgba(168,85,247,0.4)' }}
+            whileTap={{ scale: 0.98 }}
+            className="mt-3 flex items-center gap-2 px-4 py-2 rounded-lg"
+            style={{
+              background: 'linear-gradient(135deg, #7c3aed, #a855f7)',
+              border: '1px solid rgba(168,85,247,0.6)',
+              color: '#fff',
+              fontFamily: 'serif',
+              fontWeight: 700,
+              fontSize: '0.75rem',
+              cursor: 'pointer',
+              letterSpacing: '0.03em',
+            }}
+          >
+            <PlayCircle className="w-4 h-4" />
+            Kerjakan Misi Ini
+          </motion.button>
+        )}
       </div>
     </motion.div>
   );
@@ -164,7 +190,9 @@ function ChiefDialog({ texts }: { texts: string[] }) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function ChiefHousePage() {
-  const { player, updatePlayer, grantExp, addItemToInventory, completeTutorialStep } = useGame();
+  const { 
+    player, updatePlayer, grantExp, addItemToInventory, completeTutorialStep,
+  } = useGame();
   const navigate = useNavigate();
   const [claiming, setClaiming] = useState(false);
   const [claimed,  setClaimed]  = useState(false);
@@ -184,6 +212,11 @@ export default function ChiefHousePage() {
 
   // Current active mission number
   const activeMission = !m1Done ? 1 : !m2Done ? 2 : !m3Done ? 3 : !m4Done ? 4 : !m5Done ? 5 : 0;
+
+  // Handler untuk tombol "Kerjakan" — redirect simple
+  const handleExecuteMission = (missionNumber: number, targetRoute: string, targetId: string) => {
+    navigate(targetRoute);
+  };
 
   // Claim mission 5 reward and complete tutorial
   const handleClaimTutorialComplete = async () => {
@@ -251,6 +284,7 @@ export default function ChiefHousePage() {
       done   : m1Done,
       active : activeMission === 1,
       icon   : '⚔️',
+      onExecute: () => handleExecuteMission(1, '/game/village/blacksmith', 'blacksmith'),
     },
     {
       number : 2,
@@ -260,6 +294,7 @@ export default function ChiefHousePage() {
       done   : m2Done,
       active : activeMission === 2,
       icon   : '🪆',
+      onExecute: () => handleExecuteMission(2, '/game/village/arena', 'arena'),
     },
     {
       number : 3,
@@ -269,6 +304,7 @@ export default function ChiefHousePage() {
       done   : m3Done,
       active : activeMission === 3,
       icon   : '🛡️',
+      onExecute: () => handleExecuteMission(3, '/game/village/arena', 'arena'),
     },
     {
       number : 4,
@@ -278,6 +314,7 @@ export default function ChiefHousePage() {
       done   : m4Done,
       active : activeMission === 4,
       icon   : '🕯️',
+      onExecute: () => handleExecuteMission(4, '/game/village/temple', 'temple'),
     },
     {
       number : 5,
@@ -287,6 +324,7 @@ export default function ChiefHousePage() {
       done   : m5Done,
       active : activeMission === 5,
       icon   : '🌍',
+      onExecute: () => handleExecuteMission(5, '/game/village/arena', 'arena'),
     },
   ];
 
@@ -315,7 +353,7 @@ export default function ChiefHousePage() {
           style={{ border:'1px solid rgba(124,58,237,0.35)', boxShadow:'0 8px 40px rgba(0,0,0,0.6)' }}>
           <div className="relative h-52 overflow-hidden">
             <ImageWithFallback
-              src="https://images.unsplash.com/photo-1720129766483-e3554ee97d11?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtZWRpZXZhbCUyMHZpbGxhZ2UlMjBob3VzZXN8ZW58MXx8fHwxNzcyNTI3ODUyfDA&ixlib=rb-4.1.0&q=80&w=1080"
+              src="https://res.cloudinary.com/dhkethrmc/image/upload/f_auto,q_auto/v1772972042/Gemini_Generated_Image_5djwms5djwms5djw_v3avz5.png"
               alt="Rumah Kepala Desa" className="w-full h-full object-cover"
             />
             <div className="absolute inset-0" style={{ background:'linear-gradient(to top, rgba(3,1,15,0.97) 0%, rgba(3,1,15,0.6) 50%, rgba(3,1,15,0.2) 100%)' }} />
@@ -449,34 +487,6 @@ export default function ChiefHousePage() {
           </AnimatePresence>
         )}
 
-        {/* ── Quick nav buttons ── */}
-        {!tutorialDone && (
-          <div className="rounded-2xl p-5 mb-4"
-            style={{ background:'rgba(5,3,20,0.7)', border:'1px solid rgba(124,58,237,0.2)', backdropFilter:'blur(12px)' }}>
-            <p style={{ fontSize:'0.65rem', color:'#6b7280', letterSpacing:'0.15em', marginBottom:12 }}>✦ NAVIGASI CEPAT</p>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {[
-                { label:'⚒️ Pandai Besi', route:'/game/village/blacksmith', active: activeMission === 1 },
-                { label:'⚔️ Arena Latihan', route:'/game/village/arena',      active: activeMission === 2 || activeMission === 3 || activeMission === 5 },
-                { label:'🕯️ Kuil Desa',    route:'/game/village/temple',      active: activeMission === 4 },
-                { label:'🏘️ Desa',          route:'/game/village',            active: false },
-              ].map(nav => (
-                <motion.button key={nav.route} onClick={() => navigate(nav.route)}
-                  whileHover={{ scale:1.04, y:-2 }} whileTap={{ scale:0.97 }}
-                  className="py-3 rounded-xl text-center"
-                  style={{
-                    background: nav.active ? 'rgba(88,28,135,0.35)' : 'rgba(20,15,40,0.6)',
-                    border: `1px solid ${nav.active ? 'rgba(168,85,247,0.5)' : 'rgba(75,85,99,0.25)'}`,
-                    cursor:'pointer', boxShadow: nav.active ? '0 0 16px rgba(168,85,247,0.15)' : 'none',
-                  }}>
-                  <span style={{ fontSize:'0.75rem', color: nav.active ? '#e9d5ff' : '#6b7280', fontFamily:'serif' }}>
-                    {nav.label}
-                  </span>
-                </motion.button>
-              ))}
-            </div>
-          </div>
-        )}
 
       </div>
     </div>

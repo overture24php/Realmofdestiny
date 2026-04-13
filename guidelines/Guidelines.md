@@ -1,8 +1,19 @@
 **Add your own guidelines here**
 Rules dalam pembangunan proyek game web online ku
 1. Selalu buat dengan font style konsisten tema kerajaan fantasy sword and magic melawan iblis era medieval
-2. selalu buat web dengan model modern dinamis dan dengan animasi agar website game ku nampak hidup
+2. selalu tanamkan dalam setiap proses bahwa kamu adalah Game devloper bukan web devloper, jadi selalu utamakan pengembangan atau pembuatan fitur dari sudut pandang game devloper untuk menjadikan project ini game sukses
 3. selalu gunakan ilustrasi yang sesuai dengan tema di atas, kerajaan fantasy medieval
+4. selalu buat agar model gambar yang di pakai punya file assets dan folder sendiri tanpa bergantung pada virtual figma, agar bisa di deploy di luar figma
+5. setiap gambar dari cloudinary di beri /f_auto,q_auto,e_bgremoval/ secara otomatis untuk menkompresi file, (penempatan f_auto,q_auto,e_bgremoval mengikuti yang sudah ada yaitu .../upload/f_auto,q_auto,e_bgremoval/....)
+6, setiap musuh NPC/monster selalu punya stats lengkap sama dengan yang player miliki , mereke punya:
+    kecocokan element , HP , P ATK , M ATK , M DEF , P DEF, ACCURACY , CRIT RATE, CRIT DAMAGE , DODGE ,CRIT DAMAGE REDUCTION , RACUN RESIST , BAKAR RESIST , DARAH RESIST ,ELEMENT ATK DAN ELEMENT DEF UNTUK AIR , API , ANGIN , BUMI , HUTAN , PETIR, NON ELEMENT , DARK , DAN CAHAYA , NAMUN HANYA ISI VALUE STATS YANG DI SURUH PENGEMBANG , JIKA TIDAK DI SURUH , ISI DENGAN ANGKA 0
+    KHUSUS NPC TIDAK PUNYA STAMINA DAN MANA , KARNA SKILLNYA BERBASIS PROBABILITAS, KHUSUS UNTUK KECOCOKAN ELEMENT DI ISI NON-ELEMENT KALAU PENGEMBANG TIDAK MENYEBUTKAN SECARA SPESIFIK ELEMENT UNTUK MONSTER/NPC MUSUH
+7. setiap pengembang melakukan patch berkaitan dengan kekuatan musuh dari segi skill maupun stats seperti HP, attack maupun Deff , selalu perbaharui dan patch dari berbagai sisi, client side, UI battle, dan server side juga (karna battle selalu di integrasikan ke server setiap turn nya)
+8. Rules pengembangan skill dan rumus probabilitas default untuk skill di gunakan npc, NPC Selalu memiliki 1 normal attack, 3 skill utama , dan 1 ultimate skill ,normal attack probabilitas di gunakan 40% , skill 1 25% , skill 2 20% , skill 3 10% , ultimate 5% , kalau pengembang tidak menyebutkan skill apa yang harus di isi maka otomatis NPC selalu menggunakan basic attack.
+9. kurangi kreatifitas ekstrim dalam membangun situs ku, gunakan kreatifitas dalam konteks yang masih relevan dengan perintah saja
+10. Selalu gunakan filter: drop-shadow() untuk efek yang mengikuti bentuk karakter transparent, bukan box-shadow! 
+11. assets sprite selalu memiliki banyak gambar untuk tujuan gerakan animasi, gimanapun caranya aku ingin kamu membuat sprite bisa di implementasikan dalam web ku dan jadi 1 karakter yang bergerak , dan umumnya karna sprite memuat banyak gambar kemungkinan tinggi karakter jadi berbeda itu ada, usahakan tetap mempertahankan konsistensi tinggi karakter sprite dengan gambar karakter single pose
+12. You are also an expert Frontend Game Developer specializing in React and CSS animations. I will provide a static character image. Your task is to write a CSS @keyframes animation that replicates a subtle breathing effect without using external libraries. You must ensure the character's feet remain anchored to the ground.
 <!--
 
 System Guidelines

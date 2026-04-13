@@ -531,14 +531,16 @@ export interface ServerBuff {
 }
 
 export interface ServerEnemyAction {
-  type       : string;
-  name       : string;
-  icon       : string;
-  dmg        : number;
-  raw_dmg    : number;
-  is_dodged  : boolean;
-  is_guard   : boolean;
-  is_ultimate: boolean;
+  type        : string;
+  name        : string;
+  icon        : string;
+  dmg         : number;
+  raw_dmg     : number;
+  is_dodged   : boolean;
+  is_guard    : boolean;
+  is_ultimate : boolean;
+  hit_count   : number;        // jumlah hit aktual (1 = single hit)
+  hit_damages : number[];      // per-hit damage array untuk animasi hit beruntun
 }
 
 export interface ProcessTurnResult {
@@ -570,6 +572,7 @@ export interface ProcessTurnResult {
   // Updated state for display
   player_buffs    : ServerBuff[];
   enemy_debuffs   : ServerBuff[];
+  enemy_buffs     : ServerBuff[];   // buff aktif pada musuh (Tarik Perisai, Battle Cry, dll)
   skill_cooldowns : Record<string, number>;
 }
 
@@ -628,7 +631,18 @@ export async function processTurnRpc(
     hit_damages     : Array.isArray(d.hit_damages) ? d.hit_damages : [],
     dot_enemy_dmg   : d.dot_enemy_dmg   ?? 0,
     hot_player_heal : d.hot_player_heal ?? 0,
-    enemy_action    : d.enemy_action    ?? { type:'basic', name:'Serangan Dasar', icon:'⚔️', dmg:0, raw_dmg:0, is_dodged:false, is_guard:false, is_ultimate:false },
+    enemy_action    : {
+      type        : d.enemy_action?.type        ?? 'basic',
+      name        : d.enemy_action?.name        ?? 'Serangan Dasar',
+      icon        : d.enemy_action?.icon        ?? '⚔️',
+      dmg         : d.enemy_action?.dmg         ?? 0,
+      raw_dmg     : d.enemy_action?.raw_dmg     ?? 0,
+      is_dodged   : d.enemy_action?.is_dodged   ?? false,
+      is_guard    : d.enemy_action?.is_guard    ?? false,
+      is_ultimate : d.enemy_action?.is_ultimate ?? false,
+      hit_count   : d.enemy_action?.hit_count   ?? 1,
+      hit_damages : Array.isArray(d.enemy_action?.hit_damages) ? d.enemy_action.hit_damages : [],
+    },
     reflect_dmg     : d.reflect_dmg     ?? 0,
     was_parried     : d.was_parried     ?? false,
     parry_reduced   : d.parry_reduced   ?? 0,
@@ -646,6 +660,7 @@ export async function processTurnRpc(
     defeat          : d.defeat          ?? false,
     player_buffs    : d.player_buffs    ?? [],
     enemy_debuffs   : d.enemy_debuffs   ?? [],
+    enemy_buffs     : d.enemy_buffs     ?? [],
     skill_cooldowns : d.skill_cooldowns ?? {},
   };
 }

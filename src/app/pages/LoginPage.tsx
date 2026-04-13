@@ -3,7 +3,6 @@ import { Link, useNavigate } from 'react-router';
 import { motion, AnimatePresence } from 'motion/react';
 import { Eye, EyeOff, Crown, AlertCircle, Swords, Info, Shield } from 'lucide-react';
 import { ImageWithFallback } from '../components/figma/ImageWithFallback';
-import { MagicParticles } from '../components/ui/MagicParticles';
 import { getSupabaseClient } from '../../utils/supabase-client';
 
 function RuneDivider({ label }: { label?: string }) {
@@ -78,9 +77,6 @@ export default function LoginPage() {
         <div className="absolute inset-0" style={{ background: 'linear-gradient(135deg, rgba(5,0,20,0.9) 0%, rgba(30,0,60,0.85) 50%, rgba(5,0,20,0.95) 100%)' }} />
         <div className="absolute inset-0" style={{ background: 'radial-gradient(ellipse 70% 70% at 50% 50%, rgba(88,28,135,0.18) 0%, transparent 70%)' }} />
       </div>
-
-      {/* ── Particles ── */}
-      <MagicParticles />
 
       {/* ── Side Decorations ── */}
       <div className="fixed left-8 top-1/2 -translate-y-1/2 hidden xl:flex flex-col items-center gap-4 z-10 opacity-40">
