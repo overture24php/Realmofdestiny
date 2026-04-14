@@ -41,7 +41,7 @@ export const WALKABLE = new Set<number>([
   T.GRASS, T.PATH,  // outdoor walkable tiles
 ]);
 
-// ── Interfaces ─────────��───────────────────────────────────────────────────
+// ── Interfaces ────────────────────────────────────────────────────────────
 export interface MapTransition {
   toMap    : string;
   spawnX   : number;
@@ -111,6 +111,12 @@ export interface TileMap {
    * Berguna misalnya: OBJ tile di bawah prop yang ingin tetap bisa dilalui.
    */
   allowedTiles?: string[];
+  /**
+   * Per-tile image override — maps "x,y" string ke URL gambar yang
+   * dirender di atas tile color (canvas) sebagai tekstur/dekorasi ground.
+   * Di-set dari Map Editor via tool Image Tile Painter.
+   */
+  tileImages?: Record<string, string>;
 }
 
 // ── Shorthand tile aliases (for readable map layout below) ───────────────────
@@ -336,8 +342,8 @@ export const INN_LOBBY: TileMap = {
   ] as TileId[][],
   transitions: {
     "5,0": { toMap: "inn_floor2", spawnX: 5, spawnY: 3, facing: "up",   immediate: true  },
-    "4,7": { toMap: "village",    spawnX: 49, spawnY: 13, facing: "down", immediate: true },
-    "5,7": { toMap: "village",    spawnX: 50, spawnY: 13, facing: "down", immediate: true },
+    "4,7": { toMap: "village",    spawnX: 49, spawnY: 15, facing: "down", immediate: true },
+    "5,7": { toMap: "village",    spawnX: 50, spawnY: 15, facing: "down", immediate: true },
   },
   dialogs: {
     "7,4": {

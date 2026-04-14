@@ -14,7 +14,7 @@
 //   • Right movement               → normal (scaleX 1)
 //   • Up / Down                    → use LAST horizontal direction for flip
 //   • Idle                         → return to frame 1, breathing CSS animation
-// ═══════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════���══════════════════════════════════════════════
 
 import {
   useState, useEffect, useRef, useCallback,
@@ -29,8 +29,10 @@ import {
 import { VILLAGE_MAP } from "../data/villageMapData";
 import { getLevelProgress, getExpInLevel, getExpForNextLevel } from "../data/levelData";
 import InventoryModal from "../components/game/InventoryModal";
+import { useMapData } from "../hooks/useMapData";
+import { MapLoadingScreen } from "../components/game/MapLoadingScreen";
 
-// ── Combined map registry (inn maps + outdoor village) ────────────────────────
+// ── Static fallback map registry ──────────────────────────────────────────────
 const MAPS: Record<string, TileMap> = { ...INN_MAPS, village: VILLAGE_MAP };
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -157,6 +159,111 @@ function getImg(url: string): HTMLImageElement | null {
 }
 // Eagerly kick-off preload for all tile images at module load time
 [...Object.values(TILE_IMG), GRASS_IMG_URL].forEach(u => getImg(u));
+// Preload tileImages overlays dari semua peta yang terdaftar (inn + village)
+Object.values({ ...INN_MAPS, village: VILLAGE_MAP }).forEach(m => {
+  if (m.tileImages) Object.values(m.tileImages).forEach(u => getImg(u));
+});
+
+// ── Shared asset URLs — NEVER evicted from _imgCache ─────────────────────────
+// Berisi URL tile dasar, sprite player, dan NPC lobby yang selalu dibutuhkan
+// di semua map. Hanya tileImages & props map-spesifik yang boleh di-evict.
+// Note: SPRITES_MALE, SPRITES_MALE_IDLE, NPC_LOBBY_FRAMES sudah dideklarasi di atas.
+const SHARED_ASSET_URLS: ReadonlySet<string> = new Set<string>([
+  ...Object.values(TILE_IMG),
+  GRASS_IMG_URL,
+  ...SPRITES_MALE,
+  ...SPRITES_MALE_IDLE,
+  ...NPC_LOBBY_FRAMES,
+]);
+
+// ── Asset URL collector per map ───────────────────────────────────────────────
+function getMapAssetUrls(map: TileMap): string[] {
+  const urls: string[] = [];
+  // Tile images overlay (map-specific textures)
+  if (map.tileImages) urls.push(...Object.values(map.tileImages));
+  // Props / furniture images
+  if (map.props) map.props.forEach(p => p.src && urls.push(p.src));
+  // Global tile images (always needed, but fast because they'll be cached)
+  urls.push(...Object.values(TILE_IMG), GRASS_IMG_URL);
+  return [...new Set(urls)]; // dedupe
+}
+
+// ── Preload all assets for a target map ──────────────────────────────────────
+// Returns a Promise that resolves when every image is fully decoded.
+// Reports progress 0→1 via onProgress callback (called per image completion).
+// Minimum display time baked-in via caller (see doTransition).
+function preloadMapAssets(
+  map: TileMap,
+  onProgress: (p: number) => void,
+): Promise<void> {
+  const urls = getMapAssetUrls(map);
+  if (urls.length === 0) { onProgress(1); return Promise.resolve(); }
+
+  let loaded = 0;
+  const total = urls.length;
+
+  function onDone() {
+    loaded++;
+    onProgress(Math.min(1, loaded / total));
+  }
+
+  return new Promise<void>(resolve => {
+    let resolved = false;
+    function maybeResolve() {
+      if (!resolved && loaded >= total) { resolved = true; resolve(); }
+    }
+
+    urls.forEach(url => {
+      const existing = _imgCache.get(url);
+      if (existing) {
+        if (existing.complete && existing.naturalWidth > 0) {
+          // Already fully loaded — count immediately
+          onDone();
+          maybeResolve();
+        } else {
+          // In-flight load (started elsewhere) — wait for it
+          existing.addEventListener("load",  () => { onDone(); maybeResolve(); }, { once: true });
+          existing.addEventListener("error", () => { onDone(); maybeResolve(); }, { once: true });
+        }
+        return;
+      }
+      // Not in cache — kick off fresh load
+      const img = new Image();
+      img.addEventListener("load",  () => { onDone(); maybeResolve(); }, { once: true });
+      img.addEventListener("error", () => { onDone(); maybeResolve(); }, { once: true });
+      img.src = url;
+      _imgCache.set(url, img);
+    });
+
+    // Safety: if all were already loaded synchronously
+    maybeResolve();
+  });
+}
+
+// ── Evict old map assets from JS memory cache ─────────────────────────────────
+// Removes HTMLImageElement references for URLs that:
+//   • Belong to oldMap's tileImages / props
+//   • Are NOT shared (SHARED_ASSET_URLS)
+//   • Are NOT also used by newMap
+// Result: GC can reclaim the ImageBitmap memory, reducing device load.
+function evictMapAssets(oldMap: TileMap, newMap: TileMap, extraShared: Set<string>) {
+  const newMapUrls = new Set(getMapAssetUrls(newMap));
+  const combined   = new Set([...SHARED_ASSET_URLS, ...extraShared, ...newMapUrls]);
+
+  // Collect eviction candidates from old map
+  const candidates: string[] = [];
+  if (oldMap.tileImages) Object.values(oldMap.tileImages).forEach(u => candidates.push(u));
+  if (oldMap.props) oldMap.props.forEach(p => p.src && candidates.push(p.src));
+
+  let evicted = 0;
+  candidates.forEach(url => {
+    if (!combined.has(url)) {
+      _imgCache.delete(url);
+      evicted++;
+    }
+  });
+  if (evicted > 0) console.log(`[MapLoader] Evicted ${evicted} assets from "${oldMap.id}" cache`);
+}
 
 // ── Per-map collision Sets — O(1) lookup instead of Array.includes O(n) ──────
 const _blockedSetCache = new Map<string, Set<string>>();
@@ -951,11 +1058,23 @@ export default function InnPage() {
     if (!loading && !player) navigate("/login", { replace: true });
   }, [player, loading, navigate]);
 
+  // ── Dynamic map data from Supabase (DB overrides static, fallback ke MAPS) ─
+  const { mapsRef: liveMapsRef } = useMapData();
+  /** Ambil map aktif — DB override > static fallback */
+  const getMap = (id: string) => liveMapsRef.current[id] ?? MAPS[id];
+
   // ── React state (triggers re-render only when truly needed) ───────────────
   const [mapId       , setMapId       ] = useState<MapId>("inn_room");
   const [reactFacing , setReactFacing ] = useState<Direction>("down");
   const [fadeAlpha   , setFadeAlpha   ] = useState(0);
   const [showInventory, setShowInventory] = useState(false);
+
+  // ── Map loading screen state ─────────────────────────────────────────────
+  const [mapLoading, setMapLoading] = useState<{
+    show    : boolean;
+    progress: number;
+    mapName : string;
+  }>({ show: false, progress: 0, mapName: "" });
 
   // ── Canvas refs — tile layer is drawn to canvas, not DOM divs ───────────────
   // groundCanvasRef: all non-roof tiles  (z:0, below character)
@@ -1047,7 +1166,7 @@ export default function InnPage() {
     if (mapContainerRef.current && vpRef.current) {
       const vpW = vpRef.current.offsetWidth  || window.innerWidth;
       const vpH = vpRef.current.offsetHeight || window.innerHeight;
-      const map = MAPS[mapIdRef.current];
+      const map = getMap(mapIdRef.current);
       const tx  = (map.cols*TILE_SIZE <= vpW) ? (vpW - map.cols*TILE_SIZE)/2 : 0;
       const ty  = (map.rows*TILE_SIZE <= vpH) ? (vpH - map.rows*TILE_SIZE)/2 : 0;
       mapContainerRef.current.style.transform = `translate(${tx}px,${ty}px)`;
@@ -1074,7 +1193,7 @@ export default function InnPage() {
       const [dx,dy] = DIR_DELTA[dir];
       const nx = tilePos.current.x + dx;
       const ny = tilePos.current.y + dy;
-      const map = MAPS[mapIdRef.current];
+      const map = getMap(mapIdRef.current);
       if (nx<0||ny<0||nx>=map.cols||ny>=map.rows) return;
       const tt = map.tiles[ny]?.[nx];
       const key = `${nx},${ny}`;
@@ -1106,24 +1225,64 @@ export default function InnPage() {
       if (inTrans.current) return;
       inTrans.current = true;
       heldDir.current = null;
+
+      const oldMapId   = mapIdRef.current;
+      const nm         = tr.toMap as MapId;
+      const np         = { x: tr.spawnX, y: tr.spawnY };
+
+      // ── Phase 1: Fade to black (400ms CSS transition) ──────────────────────
       setFadeAlpha(1);
+
       setTimeout(() => {
-        const nm = tr.toMap as MapId;
-        const np = {x:tr.spawnX, y:tr.spawnY};
-        tilePos.current  = np;
-        visualPx.current = {x:np.x*TILE_SIZE, y:np.y*TILE_SIZE};
-        targetPx.current = {x:np.x*TILE_SIZE, y:np.y*TILE_SIZE};
-        isMoving.current = false;
-        mapIdRef.current = nm;
-        facingRef.current = tr.facing as Direction;
-        walkFrameRef.current = 0; // reset frame on map change
-        setMapId(nm);
-        setReactFacing(tr.facing as Direction);
-        setTimeout(() => {
-          setFadeAlpha(0);
-          setTimeout(() => { inTrans.current = false; }, 450);
-        }, 80);
-      }, 420);
+        // ── Phase 2: Show loading screen over black overlay ────────────────
+        const targetMap = getMap(nm);
+        const targetMapName = targetMap?.name ?? nm;
+
+        setMapLoading({ show: true, progress: 0, mapName: targetMapName });
+
+        // Extra-shared: empty set (all sprites/NPC frames already in SHARED_ASSET_URLS)
+        const extraShared = new Set<string>();
+
+        // Start timer for minimum display (prevents flash on fast-cached loads)
+        const loadStart  = Date.now();
+        const MIN_DISPLAY = 600; // ms — long enough to read the map name
+
+        // ── Phase 3: Preload all assets for target map ─────────────────────
+        preloadMapAssets(targetMap, (p) => {
+          setMapLoading(prev => ({ ...prev, progress: p }));
+        }).then(() => {
+          // ── Phase 4: Evict old map assets from JS memory ─────────────────
+          const oldMap = getMap(oldMapId);
+          if (oldMap && oldMap.id !== nm) {
+            evictMapAssets(oldMap, targetMap, extraShared);
+          }
+
+          // ── Phase 5: Switch map state ─────────────────────────────────────
+          tilePos.current      = np;
+          visualPx.current     = { x: np.x * TILE_SIZE, y: np.y * TILE_SIZE };
+          targetPx.current     = { x: np.x * TILE_SIZE, y: np.y * TILE_SIZE };
+          isMoving.current     = false;
+          mapIdRef.current     = nm;
+          facingRef.current    = tr.facing as Direction;
+          walkFrameRef.current = 0;
+          setMapId(nm);
+          setReactFacing(tr.facing as Direction);
+
+          // ── Phase 6: Wait minimum display time, then fade out loading ─────
+          const elapsed    = Date.now() - loadStart;
+          const remaining  = Math.max(0, MIN_DISPLAY - elapsed);
+
+          setTimeout(() => {
+            // Two rAF ticks → ensure React has committed new map tiles to DOM
+            // before we start fading out the loading screen
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+              setMapLoading({ show: false, progress: 1, mapName: "" });
+              setFadeAlpha(0);
+              setTimeout(() => { inTrans.current = false; }, 500);
+            }));
+          }, remaining);
+        });
+      }, 420); // wait for fade-to-black to complete
     }
     // Expose doTransition via ref — allows onInteractOk (outside useEffect) to call it
     doTransitionRef.current = doTransition;
@@ -1184,7 +1343,7 @@ export default function InnPage() {
       const vp  = visualPx.current;
       const vpW = vpRef.current.offsetWidth;
       const vpH = vpRef.current.offsetHeight;
-      const map = MAPS[mapIdRef.current];
+      const map = getMap(mapIdRef.current);
       const mW  = map.cols*TILE_SIZE, mH = map.rows*TILE_SIZE;
       const rawX = vp.x + TILE_SIZE/2 - vpW/2;
       const rawY = vp.y + TILE_SIZE/2 - vpH/2;
@@ -1234,7 +1393,22 @@ export default function InnPage() {
           _drawGroundTile(gCtx, t, tx2, ty2, tx2*TS - camX, ty2*TS - camY);
         }
       }
-      // Pass 3 — roof tiles on separate canvas (above character z:200)
+      // Pass 3 — tileImages overlay (di atas warna base tile, sebelum roof)
+      // Setiap entry map.tileImages["x,y"] = URL gambar tekstur ground
+      if (map.tileImages) {
+        for (let ty2 = y1; ty2 <= y2; ty2++) {
+          for (let tx2 = x1; tx2 <= x2; tx2++) {
+            const url = map.tileImages[`${tx2},${ty2}`];
+            if (!url) continue;
+            const img = getImg(url);
+            if (img) {
+              const sx = tx2*TS - camX, sy = ty2*TS - camY;
+              gCtx.drawImage(img, sx, sy, TS, TS);
+            }
+          }
+        }
+      }
+      // Pass 4 — roof tiles on separate canvas (above character z:200)
       for (let ty2 = y1; ty2 <= y2; ty2++) {
         for (let tx2 = x1; tx2 <= x2; tx2++) {
           if (map.tiles[ty2]?.[tx2] !== T.ROOF) continue;
@@ -1259,14 +1433,14 @@ export default function InnPage() {
           const dist = Math.abs(remX)+Math.abs(remY);
 
           if (dist<=step || dist<0.5) {
-            // ── Arrived at tile ─────────────────────────────────────────
+            // ── Arrived at tile ───────────────��─────────────────────────
             visualPx.current = {...tgt};
             isMoving.current  = false;
             stepParity.current ^= 1;
 
             const {x,y} = tilePos.current;
-            const tr  = MAPS[mapIdRef.current].transitions[`${x},${y}`];
-            const dlg = MAPS[mapIdRef.current].dialogs?.[`${x},${y}`];
+            const tr  = getMap(mapIdRef.current).transitions[`${x},${y}`];
+            const dlg = getMap(mapIdRef.current).dialogs?.[`${x},${y}`];
 
             if (tr) {
               // ── Immediate transition (tangga) → langsung tanpa tombol OK ──
@@ -1398,10 +1572,10 @@ export default function InnPage() {
 
   // ── Auth guard ───────────────────────────────────────────────────────────
   if (loading)         return <LoadingScreen msg="Memuat data pemain…" />;
-  if (!player)         return <LoadingScreen msg="Mengalihkan ke halaman login…" />;
+  if (!player)         return <LoadingScreen msg="Mengalihkan ke halaman login��" />;
 
   // ── Derived render values ─────────────────────────────────────────────────
-  const currentMap = MAPS[mapId];
+  const currentMap = getMap(mapId);
   const mapPxW = currentMap.cols*TILE_SIZE;
   const mapPxH = currentMap.rows*TILE_SIZE;
 
@@ -1503,6 +1677,13 @@ export default function InnPage() {
           )}
         </div>
       </div>
+
+      {/* ── Map Loading Screen — rendered outside game viewport, above everything ── */}
+      <MapLoadingScreen
+        visible={mapLoading.show}
+        mapName={mapLoading.mapName}
+        progress={mapLoading.progress}
+      />
     </>
   );
 }

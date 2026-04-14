@@ -11,6 +11,12 @@ import {
 } from "react";
 import { MAPS as INN_MAPS, T, TileMap } from "../data/innMapData";
 import { VILLAGE_MAP } from "../data/villageMapData";
+import { getSupabaseClient } from "../../utils/supabase-client";
+import { projectId as SUPABASE_PROJECT_ID } from "/utils/supabase/info";
+import {
+  saveMapToDb, listMapsFromDb,
+  MAPS_SETUP_SQL, type MapListItem,
+} from "../../utils/supabase-maps";
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 const TILE_PX   = 64;
@@ -21,7 +27,8 @@ const MM_W      = 180;
 const MM_H      = 120;
 
 // ── Map registry ──────────────────────────────────────────────────────────────
-const ALL_MAPS: Record<string, TileMap> = { ...INN_MAPS, village: VILLAGE_MAP };
+const STATIC_MAPS: Record<string, TileMap> = { ...INN_MAPS, village: VILLAGE_MAP };
+const ALL_MAPS: Record<string, TileMap> = { ...STATIC_MAPS };
 const MAP_OPTIONS = Object.keys(ALL_MAPS);
 
 // ── Tile styling ──────────────────────────────────────────────────────────────
@@ -42,9 +49,10 @@ const PALETTE_TYPES = [1,10,11,12,13,2,7,8,3,9,5,6,4,0];
 // ── Types ─────────────────────────────────────────────────────────────────────
 // "block" = collision override tool (Phase 2.5)
 // "transition" = tile transition editor (Phase 3)
-type Tool        = "paint"|"erase"|"select"|"block"|"transition";
+type Tool        = "paint"|"erase"|"select"|"block"|"transition"|"imgpaint"|"camera";
 type LayerId     = "ground"|"objects";
 type ResizeHandle = "nw"|"n"|"ne"|"e"|"se"|"s"|"sw"|"w";
+type SaveStatus  = "idle"|"saving"|"saved"|"error";
 
 interface TileCell  { baseType:number; }
 interface TileTransition {
@@ -64,11 +72,46 @@ interface HistSnap {
   customBlocked:string[];   // serialized for immutable snapshotting
   customAllowed:string[];
   transitions:Array<[string,TileTransition]>; // serialized transitions
+  tileImages:Array<[string,string]>;          // Phase 4: image tile data
 }
+// Phase 4: Image Tile Library entry
+interface ImgTileEntry { id:string; url:string; label:string; }
 interface Layer { visible:boolean; }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const genId = () => `obj-${Date.now()}-${Math.random().toString(36).slice(2,7)}`;
+
+/**
+ * Tambah / hapus e_bgremoval dari Cloudinary URL.
+ * Guideline 5: posisi transform .../upload/f_auto,q_auto,e_bgremoval/...
+ * URL non-Cloudinary dikembalikan apa adanya.
+ */
+function applyBgRemoval(url: string, enable: boolean): string {
+  const raw = url.trim();
+  if (!raw.includes('res.cloudinary.com')) return raw;
+  const uploadIdx = raw.indexOf('/upload/');
+  if (uploadIdx === -1) return raw;
+  const base = raw.slice(0, uploadIdx + 8);
+  const rest = raw.slice(uploadIdx + 8);
+  const slashIdx = rest.indexOf('/');
+  const firstSeg = slashIdx === -1 ? rest : rest.slice(0, slashIdx);
+  const after    = slashIdx === -1 ? '' : rest.slice(slashIdx);
+  const isTransform = (firstSeg.includes('_') || firstSeg.includes(',')) && !/^v\d+$/.test(firstSeg);
+  if (enable) {
+    if (isTransform) {
+      if (firstSeg.includes('e_bgremoval')) return raw;
+      return base + firstSeg + ',e_bgremoval' + after;
+    }
+    return base + 'f_auto,q_auto,e_bgremoval/' + rest;
+  } else {
+    if (!isTransform || !firstSeg.includes('e_bgremoval')) return raw;
+    const parts = firstSeg.split(',').filter(p => p !== 'e_bgremoval');
+    const newSeg = parts.join(',');
+    return base + (newSeg ? newSeg + after : rest.slice(slashIdx === -1 ? firstSeg.length : firstSeg.length + 1));
+  }
+}
+const hasBgRemoval  = (url: string) => url.includes('e_bgremoval');
+const isCloudinaryUrl = (url: string) => url.includes('res.cloudinary.com');
 
 function buildCells(map:TileMap): TileCell[][] {
   return map.tiles.map(row => row.map(t => ({ baseType:t })));
@@ -265,6 +308,28 @@ function ResizableObject({obj,selected,scale,isSelectMode,snapGrid,onPointerDown
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
+// Clipboard helper — navigator.clipboard is blocked inside iframes/sandboxes;
+// fall back to the legacy document.execCommand approach.
+// ══════════════════════════════════════════════════════════════════════════════
+function copyToClipboard(text: string): void {
+  if (navigator?.clipboard?.writeText) {
+    navigator.clipboard.writeText(text).catch(() => legacyCopy(text));
+    return;
+  }
+  legacyCopy(text);
+}
+function legacyCopy(text: string): void {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.cssText = "position:fixed;top:-9999px;left:-9999px;opacity:0";
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try { document.execCommand("copy"); } catch (_) { /* silent */ }
+  document.body.removeChild(ta);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
 // Main
 // ══════════════════════════════════════════════════════════════════════════════
 export default function MapEditorPage() {
@@ -304,6 +369,41 @@ export default function MapEditorPage() {
   const [snapToGrid,  setSnapToGrid]  = useState(false);
   const [mmExpanded,  setMmExpanded]  = useState(true);
 
+  // UI states
+  const [objUrl,      setObjUrl]      = useState("");
+  const [objLabel,    setObjLabel]    = useState("");
+  const [objBgRemove, setObjBgRemove] = useState(false); // toggle bg removal saat tambah object
+  const [showExport,  setShowExport]  = useState(false);
+  const [exportCode,  setExportCode]  = useState("");
+
+  // ── Phase 4: Image Tile Painter — MUST be declared before the refs/useEffect that use tileImages ──
+  const [tileImages,      setTileImages]      = useState<Record<string,string>>({});
+  const [tileImgLib,      setTileImgLib]      = useState<ImgTileEntry[]>([]);
+  const [selectedTileImg, setSelectedTileImg] = useState<string|null>(null);
+  const [tileImgUrl,      setTileImgUrl]      = useState("");
+  const [tileImgLabel,    setTileImgLabel]    = useState("");
+  const [showImgLibInput,  setShowImgLibInput]  = useState(false);
+  const [showDeployedMgr,  setShowDeployedMgr]  = useState(false);
+  const [deployedFilter,   setDeployedFilter]   = useState("");
+  const [expandedUrls,     setExpandedUrls]     = useState<Set<string>>(new Set());
+
+  // ── DB Save state ────────────���────────────────────────────────────────────
+  const [saveStatus,   setSaveStatus]   = useState<SaveStatus>("idle");
+  const [saveMsg,      setSaveMsg]      = useState("");
+  const [dbMapList,    setDbMapList]    = useState<MapListItem[]>([]);
+  const [allMapsLocal, setAllMapsLocal] = useState<Record<string, TileMap>>(STATIC_MAPS);
+  const [showSqlSetup, setShowSqlSetup] = useState(false);
+
+  // ── Auto Setup state ─────────────────────────────────────────────────────���─
+  const [setupKey,    setSetupKey]    = useState("");
+  const [setupStatus, setSetupStatus] = useState<"idle"|"running"|"done"|"error">("idle");
+  const [setupMsg,    setSetupMsg]    = useState("");
+
+  // ── DB Diagnostics state ───────────────────────────────────────────────────
+  const [showDiag,    setShowDiag]    = useState(false);
+  const [diagSteps,   setDiagSteps]   = useState<Array<{label:string;status:"pending"|"ok"|"fail"|"warn";detail:string}>>([]);
+  const [diagRunning, setDiagRunning] = useState(false);
+
   // Refs
   const canvasRef   = useRef<HTMLCanvasElement>(null);
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -314,6 +414,7 @@ export default function MapEditorPage() {
   const isPaintRef  = useRef(false);
   const lastCellRef = useRef<string|null>(null);
   const isBlockPaintRef = useRef<"block"|"allow"|null>(null); // drag direction for block tool
+  const isImgPaintRef   = useRef<"paint"|"erase"|null>(null); // Phase 4
 
   const histRef    = useRef<HistSnap[]>([]);
   const histPosRef = useRef(-1);
@@ -321,18 +422,251 @@ export default function MapEditorPage() {
   const objectsRef = useRef(objects);
   const cbRef      = useRef(customBlocked);
   const caRef      = useRef(customAllowed);
-  const transRef   = useRef(transitions);
+  const transRef      = useRef(transitions);
+  const tileImagesRef = useRef<Record<string,string>>({});
   const toolbarRef = useRef<HTMLDivElement>(null);
   useEffect(()=>{cellsRef.current=cells;},[cells]);
   useEffect(()=>{objectsRef.current=objects;},[objects]);
   useEffect(()=>{cbRef.current=customBlocked;},[customBlocked]);
   useEffect(()=>{caRef.current=customAllowed;},[customAllowed]);
   useEffect(()=>{transRef.current=transitions;},[transitions]);
+  useEffect(()=>{tileImagesRef.current=tileImages;},[tileImages]);
 
-  const [objUrl,     setObjUrl]     = useState("");
-  const [objLabel,   setObjLabel]   = useState("");
-  const [showExport, setShowExport] = useState(false);
-  const [exportCode, setExportCode] = useState("");
+  // ── Load DB map list on mount ──────────────────────────────────────────────
+  useEffect(()=>{
+    async function fetchDbMaps() {
+      try {
+        const supabase = getSupabaseClient();
+        const list     = await listMapsFromDb(supabase);
+        setDbMapList(list);
+        if (list.length > 0) {
+          const { data } = await supabase.from("maps").select("id, data");
+          if (data) {
+            const dbRec: Record<string, TileMap> = Object.fromEntries(
+              (data as Array<{id:string;data:TileMap}>).map(r=>[r.id, r.data])
+            );
+            setAllMapsLocal({ ...STATIC_MAPS, ...dbRec });
+          }
+        }
+      } catch (_) { /* Supabase belum connected — fallback ke static */ }
+    }
+    fetchDbMaps();
+  }, []);
+
+  // ── Build TileMap dari editor state ───────────────────────────────────────
+  const buildTileMap = useCallback((): TileMap => {
+    const tiles = cellsRef.current.map(row => row.map(c => c.baseType));
+    const props = objectsRef.current.map(o => ({
+      x      : Math.round(o.x / TILE_PX * 100) / 100,
+      y      : Math.round(o.y / TILE_PX * 100) / 100,
+      tileW  : Math.round(o.w / TILE_PX * 100) / 100,
+      tileH  : Math.round(o.h / TILE_PX * 100) / 100,
+      src    : o.src,
+      label  : o.label,
+      zIndex : o.zIndex,
+      ...(o.objectFit !== "fill"                   ? { objectFit  : o.objectFit   } : {}),
+      ...(o.noShadow                               ? { noShadow   : true           } : {}),
+      ...(o.contentZoom && o.contentZoom > 1       ? { contentZoom: o.contentZoom  } : {}),
+      ...(o.zoomAnchor                             ? { zoomAnchor : o.zoomAnchor   } : {}),
+    }));
+    return {
+      id           : mapName,
+      name         : mapName,
+      cols         : mapCols,
+      rows         : mapRows,
+      ambientBg    : "radial-gradient(ellipse at center,#1a0535 0%,#060112 100%)",
+      defaultSpawn : { x: 1, y: 1, facing: "down" },
+      transitions  : { ...transRef.current },
+      dialogs      : {},
+      tiles,
+      blockedTiles : [...cbRef.current],
+      allowedTiles : [...caRef.current],
+      tileImages   : { ...tileImagesRef.current },
+      props,
+    };
+  }, [mapName, mapCols, mapRows]);
+
+  // ── Save ke Supabase DB ────────────────────────────────────────────────────
+  const doSaveToDb = useCallback(async () => {
+    if (!editorReady) return;
+    setSaveStatus("saving");
+    setSaveMsg("");
+    try {
+      const supabase  = getSupabaseClient();
+      const tileMap   = buildTileMap();
+      const { error } = await saveMapToDb(supabase, tileMap);
+      if (error) {
+        const isMissing = error.includes("relation") || error.includes("does not exist") || error.includes("42P01");
+        if (isMissing) {
+          // Otomatis buka setup wizard
+          setSaveStatus("error");
+          setSaveMsg("⚠ Tabel belum ada — Setup Wizard terbuka...");
+          setTimeout(() => { setShowSqlSetup(true); setSaveStatus("idle"); setSaveMsg(""); }, 600);
+        } else {
+          setSaveStatus("error");
+          setSaveMsg(`Error: ${error}`);
+        }
+      } else {
+        setSaveStatus("saved");
+        setSaveMsg(`✓ "${mapName}" tersimpan ke database`);
+        // Refresh daftar map dari DB
+        const list = await listMapsFromDb(supabase);
+        setDbMapList(list);
+        const { data } = await supabase.from("maps").select("id, data");
+        if (data) {
+          const dbRec: Record<string, TileMap> = Object.fromEntries(
+            (data as Array<{id:string;data:TileMap}>).map(r=>[r.id, r.data])
+          );
+          setAllMapsLocal({ ...STATIC_MAPS, ...dbRec });
+        }
+        setTimeout(() => setSaveStatus("idle"), 3000);
+      }
+    } catch (e: unknown) {
+      setSaveStatus("error");
+      setSaveMsg(e instanceof Error ? e.message : "Koneksi Supabase gagal");
+    }
+  }, [editorReady, buildTileMap, mapName]);
+
+  // ── Auto-create tabel maps via Supabase Management API ────────────────────
+  const doAutoSetup = useCallback(async () => {
+    const key = setupKey.trim();
+    if (!key) { setSetupMsg("⚠ Service Role Key tidak boleh kosong."); return; }
+
+    setSetupStatus("running");
+    setSetupMsg("");
+
+    // Gunakan SQL yang sama dengan MAPS_SETUP_SQL (manual option) agar konsisten
+    const sql = MAPS_SETUP_SQL.trim();
+
+    try {
+      // Gunakan Supabase Management API — butuh project ref + Personal Access Token (PAT)
+      // PAT diambil dari: https://supabase.com/dashboard/account/tokens
+      const mgmtRes = await fetch(
+        `https://api.supabase.com/v1/projects/${SUPABASE_PROJECT_ID}/database/query`,
+        {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${key}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ query: sql }),
+        }
+      );
+
+      if (mgmtRes.ok) {
+        setSetupStatus("done");
+        setSetupMsg("✅ Tabel 'maps' berhasil dibuat! Tombol 💾 Simpan ke DB sudah bisa digunakan.");
+        return;
+      }
+
+      const mgmtErr = await mgmtRes.text();
+
+      if (mgmtErr.includes("Invalid API key") || mgmtRes.status === 401) {
+        setSetupStatus("error");
+        setSetupMsg(
+          "❌ Key tidak valid untuk Management API.\n" +
+          "Gunakan Personal Access Token (PAT) dari:\n" +
+          "https://supabase.com/dashboard/account/tokens\n\n" +
+          "Bukan Service Role Key dari Project Settings!"
+        );
+      } else if (mgmtErr.includes("already exists")) {
+        // Tabel sudah ada — bukan error sebenarnya
+        setSetupStatus("done");
+        setSetupMsg("✅ Tabel 'maps' sudah ada! Tombol 💾 Simpan ke DB siap digunakan.");
+      } else {
+        setSetupStatus("error");
+        setSetupMsg(`❌ Gagal: ${mgmtRes.status} — ${mgmtErr.slice(0, 200)}`);
+      }
+    } catch (e: unknown) {
+      setSetupStatus("error");
+      setSetupMsg(e instanceof Error ? `❌ ${e.message}` : "❌ Gagal terhubung ke Management API");
+    }
+  }, [setupKey]);
+
+  // ── DB Diagnostics — test setiap layer koneksi ─────────────────────────────
+  const doDiagnose = useCallback(async () => {
+    setDiagRunning(true);
+    const steps: Array<{label:string;status:"pending"|"ok"|"fail"|"warn";detail:string}> = [];
+    const push = (label:string, status:"ok"|"fail"|"warn", detail:string) => {
+      steps.push({ label, status, detail });
+      setDiagSteps([...steps]);
+    };
+
+    // 1. Cek apakah Supabase client terbentuk
+    let supabase;
+    try {
+      supabase = getSupabaseClient();
+      push("1. Supabase client init", "ok", `Project: ${SUPABASE_PROJECT_ID}`);
+    } catch(e) {
+      push("1. Supabase client init", "fail", e instanceof Error ? e.message : String(e));
+      setDiagRunning(false); return;
+    }
+
+    // 2. Ping: baca 1 baris dari tabel apa saja (cek koneksi ke Supabase)
+    try {
+      const t0 = Date.now();
+      const { error } = await supabase.from("maps").select("id").limit(1);
+      const ms = Date.now() - t0;
+      if (error) {
+        const code = (error as {code?:string}).code ?? "";
+        if (code === "42P01" || error.message.includes("does not exist")) {
+          push("2. Koneksi ke Supabase", "ok", `✓ Supabase reachable (${ms}ms) — tabel 'maps' BELUM ADA`);
+          push("3. Tabel 'maps' exists", "fail", `Error ${code}: ${error.message}\n→ Klik tombol 🛠 Setup untuk buat tabel`);
+          setDiagRunning(false); return;
+        } else if (error.message.includes("JWT") || error.message.includes("apikey") || code === "PGRST301") {
+          push("2. Koneksi ke Supabase", "fail", `Auth gagal: ${error.message}\n→ Periksa anon key di /utils/supabase/info.tsx`);
+          setDiagRunning(false); return;
+        } else {
+          push("2. Koneksi ke Supabase", "warn", `Response diterima tapi ada error: ${error.message}`);
+        }
+      } else {
+        push("2. Koneksi ke Supabase", "ok", `✓ Supabase reachable (${ms}ms)`);
+        push("3. Tabel 'maps' exists", "ok", "✓ Tabel 'maps' ditemukan di database");
+      }
+    } catch(e) {
+      push("2. Koneksi ke Supabase", "fail",
+        `Network error: ${e instanceof Error ? e.message : String(e)}\n→ Pastikan tidak ada firewall/VPN yang block supabase.co`);
+      setDiagRunning(false); return;
+    }
+
+    // 3. Cek bisa SELECT
+    try {
+      const { data, error } = await supabase.from("maps").select("id, name").limit(5);
+      if (error) {
+        push("4. SELECT dari maps", "fail", `${(error as {code?:string}).code}: ${error.message}`);
+      } else {
+        push("4. SELECT dari maps", "ok", `✓ SELECT ok — ${data?.length ?? 0} row(s) ada di DB`);
+      }
+    } catch(e) {
+      push("4. SELECT dari maps", "fail", e instanceof Error ? e.message : String(e));
+    }
+
+    // 4. Coba INSERT test row lalu DELETE
+    try {
+      const testId = `__diag_test_${Date.now()}`;
+      const { error: insErr } = await supabase.from("maps").insert({
+        id: testId, name: "__test__",
+        data: { id: testId, name: "__test__", cols:1, rows:1, tiles:[[0]], ambientBg:"", defaultSpawn:{x:0,y:0,facing:"down"}, transitions:{}, dialogs:{}, props:[], blockedTiles:[], allowedTiles:[], tileImages:{} },
+        updated_at: new Date().toISOString(),
+      });
+      if (insErr) {
+        const isRls = insErr.message.includes("row-level security") || insErr.message.includes("policy");
+        push("5. INSERT ke maps (RLS check)", "fail",
+          isRls
+            ? `RLS memblokir INSERT!\nPolicy 'maps_write_auth' mungkin menggunakan auth.role()='authenticated'\n→ Klik 🛠 Setup untuk recreate policy dengan USING (true)\nDetail: ${insErr.message}`
+            : `${(insErr as {code?:string}).code}: ${insErr.message}`
+        );
+      } else {
+        // cleanup
+        await supabase.from("maps").delete().eq("id", testId);
+        push("5. INSERT ke maps (RLS check)", "ok", "✓ INSERT + DELETE ok — RLS policy mengizinkan write");
+      }
+    } catch(e) {
+      push("5. INSERT ke maps (RLS check)", "fail", e instanceof Error ? e.message : String(e));
+    }
+
+    setDiagRunning(false);
+  }, []);
 
   // ── History ────────────────────────────────────────────────────────────────
   const pushHist = useCallback(()=>{
@@ -342,6 +676,7 @@ export default function MapEditorPage() {
       customBlocked:[...cbRef.current],
       customAllowed:[...caRef.current],
       transitions:Object.entries(transRef.current).map(([k,v])=>[k,{...v}]),
+      tileImages:Object.entries(tileImagesRef.current).map(([k,v])=>[k,v]),
     };
     histRef.current = histRef.current.slice(0,histPosRef.current+1);
     histRef.current.push(snap);
@@ -357,6 +692,7 @@ export default function MapEditorPage() {
     setCustomBlocked(new Set(s.customBlocked));
     setCustomAllowed(new Set(s.customAllowed));
     setTransitions(Object.fromEntries(s.transitions));
+    setTileImages(Object.fromEntries(s.tileImages??[]));
   },[]);
 
   const redo = useCallback(()=>{
@@ -367,6 +703,7 @@ export default function MapEditorPage() {
     setCustomBlocked(new Set(s.customBlocked));
     setCustomAllowed(new Set(s.customAllowed));
     setTransitions(Object.fromEntries(s.transitions));
+    setTileImages(Object.fromEntries(s.tileImages??[]));
   },[]);
 
   // ── Load map ───────────────────────────────────────────────────────────────
@@ -374,7 +711,8 @@ export default function MapEditorPage() {
     let c:TileCell[][], o:MapObject[], cols:number, rows:number, name:string;
     let cb:Set<string>, ca:Set<string>;
     if(mode==="edit"){
-      const m=ALL_MAPS[existingMap];
+      // DB maps override static maps
+      const m=allMapsLocal[existingMap] ?? ALL_MAPS[existingMap];
       c=buildCells(m); o=buildObjects(m);
       cols=m.cols; rows=m.rows; name=m.id;
       // ← Load collision overrides from existing map data
@@ -387,8 +725,9 @@ export default function MapEditorPage() {
       c=r.cells; o=r.objects; cols=cl; rows=rw; name=mapName;
       cb=new Set(); ca=new Set();
     }
-    // Load transitions
-    const srcTrans = mode==="edit" ? (ALL_MAPS[existingMap]?.transitions ?? {}) : {};
+    // Load transitions (DB override static)
+    const srcMap = mode==="edit" ? (allMapsLocal[existingMap] ?? ALL_MAPS[existingMap]) : null;
+    const srcTrans = srcMap?.transitions ?? {};
     const loadedTrans: Record<string,TileTransition> = {};
     Object.entries(srcTrans).forEach(([k,v])=>{
       const tv = v as TileTransition;
@@ -398,6 +737,10 @@ export default function MapEditorPage() {
     });
     setTransitions(loadedTrans);
     setEditingTransTile(null);
+
+    // Load tileImages
+    const srcTileImages = srcMap?.tileImages ?? {};
+    setTileImages({...srcTileImages});
 
     setCells(c); setObjects(o);
     setCustomBlocked(cb); setCustomAllowed(ca);
@@ -411,7 +754,7 @@ export default function MapEditorPage() {
       setCam({panX:(vp.clientWidth-cols*TILE_PX*scale)/2,panY:(vp.clientHeight-rows*TILE_PX*scale)/2,scale});
     }
     setEditorReady(true);
-  },[mode,existingMap,newCols,newRows,mapName,pushHist]);
+  },[mode,existingMap,newCols,newRows,mapName,pushHist,allMapsLocal]);
 
   // ── Canvas draw ─────────────────────────────────────────────────────────────
   useEffect(()=>{
@@ -478,12 +821,42 @@ export default function MapEditorPage() {
     setCam(p=>({...p,panX:vp.clientWidth/2-wx*p.scale,panY:vp.clientHeight/2-wy*p.scale}));
   },[mapCols,mapRows]);
 
+  // ── Jump kamera ke tile x,y ───────────────────────────────────────────────
+  const jumpToTile = useCallback((tx:number,ty:number)=>{
+    const vp=viewportRef.current;
+    if(!vp)return;
+    setCam(p=>({
+      ...p,
+      panX:vp.clientWidth /2-(tx+0.5)*TILE_PX*p.scale,
+      panY:vp.clientHeight/2-(ty+0.5)*TILE_PX*p.scale,
+    }));
+  },[]);
+
+  // ── Duplikat object terpilih ──────────────────────────────────────────────
+  const duplicateObj = useCallback((id: string) => {
+    const src = objectsRef.current.find(o => o.id === id);
+    if (!src) return;
+    pushHist();
+    const dup: MapObject = {
+      ...src,
+      id: genId(),
+      x : src.x + TILE_PX,
+      y : src.y + TILE_PX * 0.5,
+    };
+    setObjects(p => [...p, dup]);
+    setSelectedId(dup.id);
+  }, [pushHist]);
+
   // ── Keyboard ──────────────────────────────────────────────────────────────
   useEffect(()=>{
     const down=(e:KeyboardEvent)=>{
       if(e.code==="Space"){spaceRef.current=true;e.preventDefault();}
       if(e.key==="z"&&(e.ctrlKey||e.metaKey)){e.shiftKey?redo():undo();}
       if(e.key==="y"&&(e.ctrlKey||e.metaKey))redo();
+      if(e.key==="d"&&(e.ctrlKey||e.metaKey)&&document.activeElement?.tagName!=="INPUT"){
+        e.preventDefault();
+        if(selectedId)duplicateObj(selectedId);
+      }
       if((e.key==="Delete"||e.key==="Backspace")&&document.activeElement?.tagName!=="INPUT"){
         if(selectedId){pushHist();setObjects(p=>p.filter(o=>o.id!==selectedId));setSelectedId(null);}
       }
@@ -494,6 +867,8 @@ export default function MapEditorPage() {
         if(e.key==="e")setTool("erase");
         if(e.key==="b"){setTool("block");setActiveLayer("ground");}
         if(e.key==="t"){setTool("transition");setActiveLayer("ground");setEditingTransTile(null);}
+        if(e.key==="i"){setTool("imgpaint");setActiveLayer("ground");}
+        if(e.key==="c")setTool("camera");
         if(e.key==="1")setActiveLayer("ground");
         if(e.key==="2")setActiveLayer("objects");
         if(e.key==="g")setSnapToGrid(v=>!v);
@@ -503,7 +878,7 @@ export default function MapEditorPage() {
     window.addEventListener("keydown",down);
     window.addEventListener("keyup",up);
     return()=>{window.removeEventListener("keydown",down);window.removeEventListener("keyup",up);};
-  },[selectedId,undo,redo,pushHist]);
+  },[selectedId,undo,redo,pushHist,duplicateObj]);
 
   // ── World ↔ Screen ─────────────────────────────────────────────────────────
   const toWorld=useCallback((sx:number,sy:number):[number,number]=>{
@@ -552,10 +927,26 @@ export default function MapEditorPage() {
     }
   },[]);
 
+  // ── Phase 4: Image Tile Paint / Erase ─────────────────────────────────────
+  const paintTileImg=useCallback((tx:number,ty:number,isErase:boolean)=>{
+    const key=`${tx},${ty}`;
+    if(lastCellRef.current===key)return;
+    lastCellRef.current=key;
+    if(isErase){
+      setTileImages(prev=>{
+        if(!prev[key])return prev;
+        const n={...prev}; delete n[key]; return n;
+      });
+    } else if(selectedTileImg){
+      const url=selectedTileImg;
+      setTileImages(prev=>({...prev,[key]:url}));
+    }
+  },[selectedTileImg]);
+
   // ── Viewport pointer events ───────────────────────────────────────────────
   const onVpDown=useCallback((e:React.PointerEvent)=>{
     if(!editorReady)return;
-    if(e.button===1||(e.button===0&&spaceRef.current)){
+    if(e.button===1||(e.button===0&&spaceRef.current)||(e.button===0&&tool==="camera")){
       isPanRef.current=true;
       lastPanRef.current={x:e.clientX,y:e.clientY};
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
@@ -598,9 +989,19 @@ export default function MapEditorPage() {
       paintCell(tx,ty,tool==="erase"||e.button===2);
       (e.target as HTMLElement).setPointerCapture(e.pointerId);
     }
+    if(tool==="imgpaint"&&activeLayer==="ground"){
+      if(tx<0||ty<0||tx>=mapCols||ty>=mapRows)return;
+      const isErase=e.button===2||!selectedTileImg;
+      isImgPaintRef.current=isErase?"erase":"paint";
+      lastCellRef.current=null;
+      pushHist();
+      paintTileImg(tx,ty,isErase);
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+      return;
+    }
     if(tool==="select"&&e.button===0)setSelectedId(null);
     if(tool==="transition"&&e.button===0&&(tx<0||ty<0||tx>=mapCols||ty>=mapRows))setEditingTransTile(null);
-  },[editorReady,tool,activeLayer,mapCols,mapRows,toWorld,pushHist,paintCell,blockCell,transitions]);
+  },[editorReady,tool,activeLayer,mapCols,mapRows,toWorld,pushHist,paintCell,blockCell,paintTileImg,selectedTileImg,transitions]);
 
   const onVpMove=useCallback((e:React.PointerEvent)=>{
     if(!editorReady)return;
@@ -608,19 +1009,24 @@ export default function MapEditorPage() {
     const{tx,ty}=worldToTile(wx,wy);
     setHoverTile({x:tx,y:ty});
     if(isPanRef.current&&lastPanRef.current){
-      setCam(p=>({...p,panX:p.panX+e.clientX-lastPanRef.current!.x,panY:p.panY+e.clientY-lastPanRef.current!.y}));
+      const dx=e.clientX-lastPanRef.current.x;
+      const dy=e.clientY-lastPanRef.current.y;
       lastPanRef.current={x:e.clientX,y:e.clientY};
+      setCam(p=>({...p,panX:p.panX+dx,panY:p.panY+dy}));
       return;
     }
     if(isPaintRef.current)paintCell(tx,ty,tool==="erase");
     // canToggle=false saat drag — hanya ADD, tidak pernah hapus tile yang sudah diset
     if(isBlockPaintRef.current&&tool==="block"&&tx>=0&&ty>=0&&tx<mapCols&&ty<mapRows)
       blockCell(tx,ty,isBlockPaintRef.current,false);
-  },[editorReady,toWorld,tool,mapCols,mapRows,paintCell,blockCell]);
+    if(isImgPaintRef.current&&tool==="imgpaint"&&tx>=0&&ty>=0&&tx<mapCols&&ty<mapRows)
+      paintTileImg(tx,ty,isImgPaintRef.current==="erase");
+  },[editorReady,toWorld,tool,mapCols,mapRows,paintCell,blockCell,paintTileImg]);
 
   const onVpUp=useCallback(()=>{
     isPanRef.current=false;isPaintRef.current=false;
     isBlockPaintRef.current=null;
+    isImgPaintRef.current=null;
     lastPanRef.current=null;lastCellRef.current=null;
   },[]);
 
@@ -645,6 +1051,56 @@ export default function MapEditorPage() {
     pushHist();setObjects(p=>p.filter(o=>o.id!==id));setSelectedId(null);
   },[pushHist]);
 
+  // ── Priority / zIndex reordering ──────────────────────────────────────────
+  /** Naik 1 tingkat: tukar zIndex dengan object tepat di atasnya (sorted by zIndex) */
+  const objMoveUp=useCallback((id:string)=>{
+    pushHist();
+    setObjects(prev=>{
+      const sorted=[...prev].sort((a,b)=>a.zIndex-b.zIndex);
+      const idx=sorted.findIndex(o=>o.id===id);
+      if(idx<0||idx>=sorted.length-1)return prev; // sudah paling atas
+      const cur=sorted[idx];
+      const above=sorted[idx+1];
+      // Jika zIndex sama, cukup naikkan current
+      const newCurZ=above.zIndex===cur.zIndex?above.zIndex+1:above.zIndex;
+      const newAboveZ=above.zIndex===cur.zIndex?cur.zIndex:cur.zIndex;
+      return prev.map(o=>o.id===id?{...o,zIndex:newCurZ}:o.id===above.id?{...o,zIndex:newAboveZ}:o);
+    });
+  },[pushHist]);
+
+  /** Turun 1 tingkat: tukar zIndex dengan object tepat di bawahnya */
+  const objMoveDown=useCallback((id:string)=>{
+    pushHist();
+    setObjects(prev=>{
+      const sorted=[...prev].sort((a,b)=>a.zIndex-b.zIndex);
+      const idx=sorted.findIndex(o=>o.id===id);
+      if(idx<=0)return prev; // sudah paling bawah
+      const cur=sorted[idx];
+      const below=sorted[idx-1];
+      const newCurZ=below.zIndex===cur.zIndex?below.zIndex-1:below.zIndex;
+      const newBelowZ=below.zIndex===cur.zIndex?cur.zIndex:cur.zIndex;
+      return prev.map(o=>o.id===id?{...o,zIndex:newCurZ}:o.id===below.id?{...o,zIndex:newBelowZ}:o);
+    });
+  },[pushHist]);
+
+  /** Paling Depan: zIndex → max + 1 */
+  const objBringFront=useCallback((id:string)=>{
+    pushHist();
+    setObjects(prev=>{
+      const maxZ=prev.reduce((m,o)=>Math.max(m,o.zIndex),0);
+      return prev.map(o=>o.id===id?{...o,zIndex:maxZ+1}:o);
+    });
+  },[pushHist]);
+
+  /** Paling Belakang: zIndex → min - 1 (floor 0) */
+  const objSendBack=useCallback((id:string)=>{
+    pushHist();
+    setObjects(prev=>{
+      const minZ=prev.reduce((m,o)=>Math.min(m,o.zIndex),Infinity);
+      return prev.map(o=>o.id===id?{...o,zIndex:Math.max(0,minZ-1)}:o);
+    });
+  },[pushHist]);
+
   const addObject=()=>{
     if(!objUrl.trim())return;
     pushHist();
@@ -652,7 +1108,9 @@ export default function MapEditorPage() {
       (viewportRef.current?.clientWidth??800)/2+(viewportRef.current?.getBoundingClientRect().left??0),
       (viewportRef.current?.clientHeight??600)/2+(viewportRef.current?.getBoundingClientRect().top??0),
     );
-    const newObj:MapObject={id:genId(),src:objUrl.trim(),label:objLabel.trim(),
+    // Proses URL: tambah e_bgremoval jika dipilih (Cloudinary only)
+    const finalSrc = applyBgRemoval(objUrl.trim(), objBgRemove);
+    const newObj:MapObject={id:genId(),src:finalSrc,label:objLabel.trim(),
       x:Math.max(0,wx-TILE_PX*2),y:Math.max(0,wy-TILE_PX*2),
       w:TILE_PX*4,h:TILE_PX*4,zIndex:200,objectFit:"fill",noShadow:false};
     setObjects(p=>[...p,newObj]);
@@ -689,6 +1147,10 @@ export default function MapEditorPage() {
       ].join("");
       return `  { x:${tx}, y:${ty}, tileW:${tw}, tileH:${th}, src:"${o.src}", label:"${o.label}"${extras} }`;
     }).join(",\n");
+    // tileImages
+    const tiImgEntries=Object.entries(tileImages);
+    const tiImgCode=tiImgEntries.map(([k,v])=>`    "${k}": "${v}"`).join(",\n");
+
     const N=mapName.toUpperCase().replace(/[^A-Z0-9_]/g,"_");
     const isExisting=mode==="edit"&&!!ALL_MAPS[existingMap];
     const targetFile=existingMap==="village"?"villageMapData.ts":"innMapData.ts";
@@ -715,7 +1177,7 @@ export default function MapEditorPage() {
 //    🔴 blockedTiles : ${bArr.length} tile di-force BLOCKED
 //    🟢 allowedTiles : ${aArr.length} tile di-force WALKABLE
 //    🔀 transitions  : ${transEntries.length} tile transisi
-// ═══════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════���══════════
 
 export const ${N}_MAP: TileMap = {
   id:"${mapName}", name:"${mapName}", cols:${mapCols}, rows:${mapRows},
@@ -730,14 +1192,17 @@ ${tilesCode}
   ],
   blockedTiles:[${bArr.join(",")}],
   allowedTiles:[${aArr.join(",")}],
+  tileImages:{
+${tiImgCode||"    // (kosong)"}
+  },
   props:[
 ${propsCode||"    // (kosong)"}
   ],
 };`);
     setShowExport(true);
-  },[cells,objects,transitions,customBlocked,customAllowed,mapName,mapCols,mapRows,mode,existingMap]);
+  },[cells,objects,transitions,tileImages,customBlocked,customAllowed,mapName,mapCols,mapRows,mode,existingMap]);
 
-  // ── Derived ────────────────────────────────────────────────────────────────
+  // ── Derived ─────────────────────────────────────────────────��──────────────
   const selectedObj=objects.find(o=>o.id===selectedId)??null;
   const zoomPct=Math.round(cam.scale*100);
   const isInMap=hoverTile
@@ -751,14 +1216,17 @@ ${propsCode||"    // (kosong)"}
   const hoverBaseBlocked=hoverTile?BLOCKED_TYPES.has(cells[hoverTile.y]?.[hoverTile.x]?.baseType??-1):false;
   const hoverEffectiveBlocked=hoverIsCustomBlocked||(hoverBaseBlocked&&!hoverIsCustomAllowed);
 
-  const vpCursor=isPanRef.current?"grabbing":spaceRef.current?"grab"
+  const vpCursor=isPanRef.current?"grabbing"
+    :tool==="camera"?"grab"
+    :spaceRef.current?"grab"
     :tool==="paint"&&activeLayer==="ground"?"crosshair"
     :tool==="erase"&&activeLayer==="ground"?"cell"
     :tool==="block"&&activeLayer==="ground"?"cell"
     :tool==="transition"&&activeLayer==="ground"?"pointer"
+    :tool==="imgpaint"&&activeLayer==="ground"?(selectedTileImg?"crosshair":"not-allowed")
     :"default";
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ── Render ──────────────────────────────────────────────────────���──────────
   return (
     <div style={{width:"100vw",height:"100vh",display:"flex",flexDirection:"column",
       background:"radial-gradient(ellipse at center,#160430 0%,#04010e 100%)",
@@ -800,6 +1268,20 @@ ${propsCode||"    // (kosong)"}
             style={{...sBtn(tool==="transition","#b45309"),fontSize:10,flexShrink:0}}>
             🔀 Transition
           </button>
+          {/* Image Tile Painter */}
+          <button onClick={()=>{setTool("imgpaint");setActiveLayer("ground");}} title="Image Tile Painter (I)"
+            style={{...sBtn(tool==="imgpaint","#166534"),fontSize:10,flexShrink:0,
+              background:tool==="imgpaint"?"linear-gradient(135deg,#14532d,#166534)":undefined,
+              color:tool==="imgpaint"?"#86efac":undefined}}>
+            🖼 ImgTile
+          </button>
+          {/* Camera/Pan Mode */}
+          <button onClick={()=>setTool("camera")} title="Camera Pan Mode — klik tahan untuk geser kamera (C)"
+            style={{...sBtn(tool==="camera","#0369a1"),fontSize:10,flexShrink:0,
+              background:tool==="camera"?"linear-gradient(135deg,#0c4a6e,#0369a1)":undefined,
+              color:tool==="camera"?"#7dd3fc":undefined}}>
+            🎥 Camera
+          </button>
         </div>
 
         <div style={{width:1,height:22,background:"rgba(140,80,220,.25)",flexShrink:0}}/>
@@ -836,14 +1318,50 @@ ${propsCode||"    // (kosong)"}
         <button title="Geser kanan" onClick={()=>toolbarRef.current?.scrollBy({left:160,behavior:"smooth"})}
           style={{...sBtn(),flexShrink:0,padding:"3px 5px",fontSize:11,opacity:.65,marginLeft:2}}>&#9654;</button>
 
+        {/* Save ke DB — pinned kanan */}
+        {editorReady&&(
+          <button onClick={doSaveToDb} disabled={saveStatus==="saving"}
+            style={{...sBtn(),flexShrink:0,marginLeft:6,whiteSpace:"nowrap",
+              background:saveStatus==="saved"
+                ?"linear-gradient(135deg,#14532d,#166534)"
+                :saveStatus==="error"
+                ?"linear-gradient(135deg,#7f1d1d,#991b1b)"
+                :saveStatus==="saving"
+                ?"rgba(40,20,80,.7)"
+                :"linear-gradient(135deg,#1e3a8a,#1d4ed8)",
+              color:saveStatus==="saved"?"#86efac":saveStatus==="error"?"#fca5a5":"#bfdbfe",
+              outline:saveStatus==="saved"?"1px solid rgba(134,239,172,.3)":saveStatus==="error"?"1px solid rgba(252,165,165,.3)":"1px solid rgba(191,219,254,.3)",
+              opacity:saveStatus==="saving"?0.7:1,cursor:saveStatus==="saving"?"not-allowed":"pointer"}}>
+            {saveStatus==="saving"?"⏳ Menyimpan…":saveStatus==="saved"?"✅ Tersimpan!":saveStatus==="error"?"❌ Gagal":"💾 Simpan ke DB"}
+          </button>
+        )}
+        {/* SQL Setup button */}
+        <button onClick={()=>setShowSqlSetup(true)} title="Setup — buat tabel maps di Supabase"
+          style={{...sBtn(),flexShrink:0,marginLeft:4,padding:"5px 7px",fontSize:11,opacity:.6}}>🛠</button>
+        {/* Diagnosa DB */}
+        <button onClick={()=>{setDiagSteps([]);setShowDiag(true);}} title="Diagnosa koneksi database"
+          style={{...sBtn(),flexShrink:0,marginLeft:2,padding:"5px 7px",fontSize:11,opacity:.6}}>🔬</button>
         {/* Export — selalu terlihat, pinned kanan */}
         {editorReady&&(
           <button onClick={doExport}
-            style={{...sBtn(),flexShrink:0,marginLeft:6,whiteSpace:"nowrap",
+            style={{...sBtn(),flexShrink:0,marginLeft:4,whiteSpace:"nowrap",
               background:"linear-gradient(135deg,#14532d,#166534)",
               color:"#86efac",outline:"1px solid rgba(134,239,172,.3)"}}>
             📋 Export
           </button>
+        )}
+        {/* Save status message */}
+        {saveMsg&&(
+          <span
+            onClick={saveStatus==="error" ? ()=>setShowDiag(true) : undefined}
+            style={{flexShrink:0,marginLeft:6,fontSize:10,fontFamily:"monospace",
+              color:saveStatus==="error"?"rgba(252,165,165,.9)":"rgba(134,239,172,.9)",
+              whiteSpace:"nowrap",maxWidth:320,overflow:"hidden",textOverflow:"ellipsis",
+              cursor:saveStatus==="error"?"pointer":"default",
+              textDecoration:saveStatus==="error"?"underline dotted":"none"}}
+            title={saveMsg + (saveStatus==="error" ? "\n→ Klik untuk buka Diagnosa DB" : "")}>
+            {saveMsg}
+          </span>
         )}
       </div>
 
@@ -866,12 +1384,32 @@ ${propsCode||"    // (kosong)"}
                 ))}
               </div>
               {mode==="edit"?(
+                <>
                 <select value={existingMap} onChange={e=>setExistingMap(e.target.value)}
-                  style={{...sInp,cursor:"pointer",marginBottom:7}}>
-                  {MAP_OPTIONS.map(id=>(
-                    <option key={id} value={id}>{id} ({ALL_MAPS[id].cols}×{ALL_MAPS[id].rows})</option>
-                  ))}
+                  style={{...sInp,cursor:"pointer",marginBottom:4}}>
+                  <optgroup label="── Static (source code) ──">
+                    {MAP_OPTIONS.map(id=>(
+                      <option key={id} value={id}>{id} ({ALL_MAPS[id].cols}×{ALL_MAPS[id].rows})</option>
+                    ))}
+                  </optgroup>
+                  {dbMapList.length>0&&(
+                    <optgroup label="── Database (Supabase) 💾 ──">
+                      {dbMapList.filter(m=>!ALL_MAPS[m.id]).map(m=>(
+                        <option key={m.id} value={m.id}>{m.id} 💾</option>
+                      ))}
+                      {dbMapList.filter(m=>!!ALL_MAPS[m.id]).map(m=>(
+                        <option key={`db_${m.id}`} value={m.id}>{m.id} ↑DB</option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
+                {dbMapList.length>0&&(
+                  <div style={{fontSize:8,color:"rgba(120,200,120,.6)",marginBottom:5,lineHeight:1.5}}>
+                    💾 {dbMapList.length} map di DB · {dbMapList.filter(m=>!!ALL_MAPS[m.id]).length} override static
+                  </div>
+                )}
+                </>
+              
               ):(
                 <>
                   <input placeholder="Nama map" value={mapName}
@@ -1027,6 +1565,318 @@ ${propsCode||"    // (kosong)"}
               </div>
             )}
 
+            {/* ── Phase 4: Image Tile Painter ── */}
+            {editorReady&&(
+              <div style={{marginBottom:14,opacity:activeLayer==="ground"&&(tool==="imgpaint"||tool==="paint"||tool==="erase")?1:.55,transition:"opacity .2s"}}>
+                <h3 style={{...sH,color:tool==="imgpaint"?"rgba(120,255,180,.9)":"rgba(200,160,255,.85)"}}>
+                  🖼 Image Tiles {tool==="imgpaint"&&<span style={{color:"rgba(100,255,160,.7)",fontSize:8}}>● AKTIF</span>}
+                </h3>
+                <div style={{fontSize:8.5,color:"rgba(160,130,200,.5)",marginBottom:8,lineHeight:1.6}}>
+                  Tambah gambar tekstur ke palette, lalu cat ke tile ground.<br/>
+                  LMB=cat · RMB=hapus · Shortcut: [I]
+                </div>
+
+                {/* Library Grid */}
+                {tileImgLib.length>0?(
+                  <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:8}}>
+                    {tileImgLib.map(entry=>{
+                      const isSel=selectedTileImg===entry.url;
+                      return(
+                        <div key={entry.id} title={entry.label||entry.url}
+                          onClick={()=>{setSelectedTileImg(entry.url);setTool("imgpaint");setActiveLayer("ground");}}
+                          style={{position:"relative",width:38,height:38,borderRadius:5,overflow:"hidden",
+                            cursor:"pointer",flexShrink:0,
+                            outline:isSel?"2.5px solid rgba(100,255,180,.9)":"1.5px solid rgba(100,60,180,.3)",
+                            boxShadow:isSel?"0 0 8px rgba(80,255,150,.5)":"none",
+                            background:"rgba(0,0,0,.4)"}}>
+                          <img src={entry.url} alt="" style={{width:"100%",height:"100%",objectFit:"cover",imageRendering:"pixelated"}}/>
+                          {isSel&&<div style={{position:"absolute",inset:0,background:"rgba(80,255,150,.12)"}}/>}
+                          <button title="Hapus dari library"
+                            onClick={e=>{e.stopPropagation();setTileImgLib(p=>p.filter(x=>x.id!==entry.id));if(selectedTileImg===entry.url)setSelectedTileImg(null);}}
+                            style={{position:"absolute",top:1,right:1,width:12,height:12,background:"rgba(200,40,40,.8)",
+                              border:"none",borderRadius:2,cursor:"pointer",color:"#fff",fontSize:7,
+                              display:"flex",alignItems:"center",justifyContent:"center",lineHeight:1,padding:0,
+                              opacity:0,transition:"opacity .15s"}}
+                            onMouseEnter={e=>(e.currentTarget.style.opacity="1")}
+                            onMouseLeave={e=>(e.currentTarget.style.opacity="0")}>
+                            ✕
+                          </button>
+                        </div>
+                      );
+                    })}
+                    {/* "none" eraser slot */}
+                    <div title="Pilih mode hapus (RMB juga bisa)"
+                      onClick={()=>{setSelectedTileImg(null);setTool("imgpaint");setActiveLayer("ground");}}
+                      style={{width:38,height:38,borderRadius:5,border:"1.5px dashed rgba(255,100,80,.4)",
+                        cursor:"pointer",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",
+                        background:selectedTileImg===null&&tool==="imgpaint"?"rgba(255,80,60,.18)":"rgba(0,0,0,.3)",
+                        outline:selectedTileImg===null&&tool==="imgpaint"?"2px solid rgba(255,100,80,.7)":"none",
+                        fontSize:16,color:"rgba(255,100,80,.7)"}}>
+                      ✕
+                    </div>
+                  </div>
+                ):(
+                  <div style={{fontSize:8.5,color:"rgba(120,100,160,.4)",textAlign:"center",padding:"8px 0",
+                    border:"1px dashed rgba(120,80,180,.2)",borderRadius:5,marginBottom:8}}>
+                    Belum ada tile gambar
+                  </div>
+                )}
+
+                {/* Current tileImages count */}
+                {Object.keys(tileImages).length>0&&(
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+                    padding:"4px 8px",marginBottom:8,background:"rgba(50,180,80,.1)",
+                    border:"1px solid rgba(80,200,100,.2)",borderRadius:5}}>
+                    <span style={{fontSize:9,color:"rgba(120,220,140,.8)"}}>🖼 {Object.keys(tileImages).length} tile di-cat</span>
+                    <button onClick={()=>{pushHist();setTileImages({});}}
+                      style={{background:"none",border:"none",cursor:"pointer",color:"rgba(255,120,100,.7)",fontSize:9,padding:0}}>
+                      🗑 Hapus Semua
+                    </button>
+                  </div>
+                )}
+
+                {/* Add to library */}
+                <button onClick={()=>setShowImgLibInput(v=>!v)}
+                  style={{width:"100%",padding:"4px 0",fontSize:9,fontFamily:"'Cinzel',serif",
+                    letterSpacing:"0.05em",cursor:"pointer",border:"1px solid rgba(100,200,140,.3)",
+                    borderRadius:5,background:showImgLibInput?"rgba(50,150,80,.25)":"rgba(20,60,30,.4)",
+                    color:"rgba(120,220,150,.75)",marginBottom:showImgLibInput?6:0}}>
+                  {showImgLibInput?"▲ Tutup":"➕ Tambah Tile Gambar"}
+                </button>
+                {showImgLibInput&&(
+                  <div style={{padding:"8px 0 0"}}>
+                    <input placeholder="URL gambar tile..." value={tileImgUrl}
+                      onChange={e=>setTileImgUrl(e.target.value)}
+                      style={{...sInp,marginBottom:4}}/>
+                    <input placeholder="Label (opsional)" value={tileImgLabel}
+                      onChange={e=>setTileImgLabel(e.target.value)}
+                      style={{...sInp,marginBottom:6}}/>
+                    {tileImgUrl&&(
+                      <div style={{width:"100%",height:48,marginBottom:6,borderRadius:4,
+                        overflow:"hidden",background:"#111",border:"1px solid rgba(140,80,220,.2)"}}>
+                        <img src={tileImgUrl} alt="" style={{width:"100%",height:"100%",objectFit:"cover"}}/>
+                      </div>
+                    )}
+                    <button onClick={()=>{
+                      if(!tileImgUrl.trim())return;
+                      const entry:ImgTileEntry={id:`ti-${Date.now()}`,url:tileImgUrl.trim(),label:tileImgLabel.trim()};
+                      setTileImgLib(p=>[...p,entry]);
+                      setSelectedTileImg(entry.url);
+                      setTool("imgpaint");setActiveLayer("ground");
+                      setTileImgUrl("");setTileImgLabel("");setShowImgLibInput(false);
+                    }} style={{width:"100%",padding:"5px 0",fontSize:10,fontFamily:"'Cinzel',serif",
+                      letterSpacing:"0.06em",cursor:tileImgUrl?"pointer":"not-allowed",border:"none",borderRadius:5,
+                      background:tileImgUrl?"linear-gradient(135deg,#14532d,#166534)":"rgba(30,60,30,.4)",
+                      color:tileImgUrl?"#86efac":"rgba(100,150,110,.4)"}}>
+                      ➕ Simpan ke Library
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Deployed Tile Image Manager ─────────────────────────────── */}
+            {editorReady&&Object.keys(tileImages).length>0&&(()=>{
+              // Grupkan tileImages berdasarkan URL
+              const grouped: Record<string,string[]> = {};
+              Object.entries(tileImages).forEach(([key,url])=>{
+                if(!grouped[url]) grouped[url]=[];
+                grouped[url].push(key);
+              });
+              const urls = Object.keys(grouped);
+              const filteredUrls = deployedFilter.trim()
+                ? urls.filter(u=>u.toLowerCase().includes(deployedFilter.toLowerCase()))
+                : urls;
+              const totalTiles = Object.keys(tileImages).length;
+
+              return(
+                <div style={{marginBottom:14}}>
+                  {/* Header toggle */}
+                  <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:6,cursor:"pointer"}}
+                    onClick={()=>setShowDeployedMgr(v=>!v)}>
+                    <h3 style={{...sH,marginBottom:0,flex:1,color:"rgba(255,180,80,.85)"}}>
+                      📍 Tile Deployed
+                    </h3>
+                    <span style={{fontSize:9,background:"rgba(255,160,40,.15)",border:"1px solid rgba(255,160,40,.3)",
+                      borderRadius:10,padding:"1px 7px",color:"rgba(255,180,60,.8)",fontFamily:"monospace"}}>
+                      {totalTiles}
+                    </span>
+                    <span style={{fontSize:10,color:"rgba(180,140,60,.6)"}}>{showDeployedMgr?"▲":"▼"}</span>
+                  </div>
+
+                  {showDeployedMgr&&(
+                    <div style={{display:"flex",flexDirection:"column",gap:0}}>
+
+                      {/* Search/filter */}
+                      <input
+                        placeholder="🔍 Filter URL..."
+                        value={deployedFilter}
+                        onChange={e=>setDeployedFilter(e.target.value)}
+                        style={{...sInp,marginBottom:6,fontSize:9}}
+                      />
+
+                      {/* Hapus semua tombol */}
+                      <div style={{display:"flex",gap:5,marginBottom:8}}>
+                        <button onClick={()=>{pushHist();setTileImages({});}}
+                          style={{...sBtn(),flex:1,fontSize:9,
+                            background:"linear-gradient(135deg,#7f1d1d,#991b1b)",color:"#fca5a5"}}>
+                          🗑 Hapus Semua ({totalTiles})
+                        </button>
+                        {deployedFilter&&(
+                          <button onClick={()=>{
+                            pushHist();
+                            const toRemove=new Set(filteredUrls);
+                            setTileImages(prev=>{
+                              const next={...prev};
+                              Object.entries(next).forEach(([k,v])=>{if(toRemove.has(v))delete next[k];});
+                              return next;
+                            });
+                          }} style={{...sBtn(),flex:1,fontSize:9,
+                            background:"linear-gradient(135deg,#78350f,#92400e)",color:"#fcd34d"}}>
+                          🗑 Hapus Filtered ({filteredUrls.reduce((s,u)=>s+grouped[u].length,0)})
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Daftar grup per URL */}
+                      <div style={{display:"flex",flexDirection:"column",gap:5,maxHeight:360,overflowY:"auto"}}
+                        className="me2-scroll">
+                        {filteredUrls.length===0?(
+                          <div style={{fontSize:9,color:"rgba(160,120,80,.5)",textAlign:"center",padding:"6px 0"}}>
+                            Tidak ada hasil untuk filter ini
+                          </div>
+                        ):filteredUrls.map(url=>{
+                          const keys=grouped[url];
+                          const isExpanded=expandedUrls.has(url);
+                          const label=tileImgLib.find(e=>e.url===url)?.label||"";
+                          const shortUrl=url.replace(/^https?:\/\//,"").slice(0,34)+(url.length>40?"…":"");
+                          return(
+                            <div key={url} style={{border:"1px solid rgba(200,140,40,.2)",borderRadius:7,
+                              background:"rgba(40,25,5,.4)",overflow:"hidden"}}>
+
+                              {/* Row header */}
+                              <div style={{display:"flex",alignItems:"center",gap:6,padding:"5px 7px",cursor:"pointer"}}
+                                onClick={()=>setExpandedUrls(prev=>{
+                                  const s=new Set(prev);
+                                  s.has(url)?s.delete(url):s.add(url);
+                                  return s;
+                                })}>
+                                {/* Thumbnail */}
+                                <div style={{width:28,height:28,flexShrink:0,borderRadius:4,overflow:"hidden",
+                                  background:"rgba(0,0,0,.5)",border:"1px solid rgba(200,140,40,.3)"}}>
+                                  <img src={url} alt="" style={{width:"100%",height:"100%",objectFit:"cover",imageRendering:"pixelated"}}/>
+                                </div>
+                                {/* Label+URL */}
+                                <div style={{flex:1,minWidth:0}}>
+                                  {label&&<div style={{fontSize:8.5,color:"rgba(255,200,80,.85)",fontFamily:"'Cinzel',serif",
+                                    letterSpacing:"0.04em",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                                    {label}
+                                  </div>}
+                                  <div style={{fontSize:7.5,color:"rgba(200,160,80,.5)",overflow:"hidden",
+                                    textOverflow:"ellipsis",whiteSpace:"nowrap",fontFamily:"monospace"}}
+                                    title={url}>
+                                    {shortUrl}
+                                  </div>
+                                </div>
+                                {/* Count badge */}
+                                <span style={{fontSize:9,fontFamily:"monospace",flexShrink:0,
+                                  background:"rgba(255,160,40,.15)",border:"1px solid rgba(255,160,40,.25)",
+                                  borderRadius:8,padding:"1px 6px",color:"rgba(255,190,60,.8)"}}>
+                                  {keys.length}
+                                </span>
+                                {/* Hapus grup */}
+                                <button title={`Hapus semua ${keys.length} tile dengan gambar ini`}
+                                  onClick={e=>{
+                                    e.stopPropagation();
+                                    pushHist();
+                                    setTileImages(prev=>{
+                                      const next={...prev};
+                                      keys.forEach(k=>delete next[k]);
+                                      return next;
+                                    });
+                                  }}
+                                  style={{...sBtn(),flexShrink:0,padding:"2px 6px",fontSize:9,
+                                    background:"linear-gradient(135deg,#7f1d1d,#991b1b)",color:"#fca5a5"}}>
+                                  🗑
+                                </button>
+                                <span style={{fontSize:9,color:"rgba(200,140,60,.4)",flexShrink:0}}>{isExpanded?"▲":"▼"}</span>
+                              </div>
+
+                              {/* Expanded: koordinat tiles */}
+                              {isExpanded&&(
+                                <div style={{borderTop:"1px solid rgba(200,140,40,.15)",padding:"6px 8px",
+                                  background:"rgba(20,12,3,.5)"}}>
+                                  {/* Tombol select/paint ulang */}
+                                  <button onClick={()=>{
+                                    setSelectedTileImg(url);
+                                    setTool("imgpaint");
+                                    setActiveLayer("ground");
+                                    // Pastikan ada di library
+                                    if(!tileImgLib.find(e=>e.url===url)){
+                                      setTileImgLib(p=>[...p,{id:`ti-${Date.now()}`,url,label}]);
+                                    }
+                                  }} style={{...sBtn(),width:"100%",marginBottom:6,fontSize:9,
+                                    background:"linear-gradient(135deg,#14532d,#166534)",color:"#86efac"}}>
+                                    🖌 Pilih & Paint dengan Ini
+                                  </button>
+
+                                  {/* Grid koordinat */}
+                                  <div style={{display:"flex",flexWrap:"wrap",gap:3}}>
+                                    {keys.sort((a,b)=>{
+                                      const [ax,ay]=a.split(",").map(Number);
+                                      const [bx,by]=b.split(",").map(Number);
+                                      return ay!==by?ay-by:ax-bx;
+                                    }).map(key=>{
+                                      const [tx,ty]=key.split(",").map(Number);
+                                      return(
+                                        <div key={key} style={{display:"flex",alignItems:"center",gap:2,
+                                          background:"rgba(40,25,5,.7)",border:"1px solid rgba(200,140,40,.2)",
+                                          borderRadius:4,padding:"2px 4px",fontSize:8,fontFamily:"monospace"}}>
+                                          {/* Koordinat — klik untuk jump */}
+                                          <span
+                                            onClick={()=>jumpToTile(tx,ty)}
+                                            title={`Klik untuk pergi ke tile (${tx},${ty})`}
+                                            style={{color:"rgba(255,200,80,.8)",cursor:"pointer",
+                                              textDecoration:"underline dotted",textUnderlineOffset:2}}>
+                                            {tx},{ty}
+                                          </span>
+                                          {/* Hapus tile ini saja */}
+                                          <button
+                                            title={`Hapus tile (${tx},${ty})`}
+                                            onClick={()=>{
+                                              pushHist();
+                                              setTileImages(prev=>{
+                                                const next={...prev};
+                                                delete next[key];
+                                                return next;
+                                              });
+                                            }}
+                                            style={{background:"none",border:"none",cursor:"pointer",
+                                              color:"rgba(255,100,80,.7)",fontSize:8,padding:0,
+                                              lineHeight:1,display:"flex",alignItems:"center"}}>
+                                            ✕
+                                          </button>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+
+                                  {/* Info total */}
+                                  <div style={{marginTop:5,fontSize:8,color:"rgba(180,140,60,.45)",textAlign:"right"}}>
+                                    {keys.length} tile • klik koordinat untuk jump ke posisi
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             {/* ── Tile Palette ── */}
             {editorReady&&(
               <div style={{marginBottom:14,opacity:activeLayer==="ground"&&(tool==="paint"||tool==="erase")?1:.4,transition:"opacity .2s"}}>
@@ -1050,6 +1900,46 @@ ${propsCode||"    // (kosong)"}
             {selectedObj&&(
               <div style={{marginBottom:14}}>
                 <h3 style={{...sH,color:"rgba(255,200,80,.85)"}}>📦 Object Selected</h3>
+
+                {/* ── Asset preview + duplikat ── */}
+                <div style={{display:"flex",gap:8,marginBottom:8,alignItems:"stretch"}}>
+                  {/* Thumbnail */}
+                  <div style={{width:56,height:56,flexShrink:0,borderRadius:6,overflow:"hidden",
+                    background:"rgba(0,0,0,.6)",border:"1.5px solid rgba(255,200,80,.25)",
+                    display:"flex",alignItems:"center",justifyContent:"center",position:"relative"}}>
+                    <img src={selectedObj.src} alt=""
+                      style={{width:"100%",height:"100%",objectFit:"contain",imageRendering:"pixelated",
+                        filter:"drop-shadow(0 2px 6px rgba(0,0,0,.6))"}}/>
+                  </div>
+                  {/* Info + Tombol Duplikat */}
+                  <div style={{flex:1,display:"flex",flexDirection:"column",gap:4,minWidth:0}}>
+                    <div style={{fontSize:8.5,color:"rgba(255,200,100,.8)",fontFamily:"'Cinzel',serif",
+                      overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",
+                      letterSpacing:"0.04em"}}>
+                      {selectedObj.label||"(no label)"}
+                    </div>
+                    <div style={{fontSize:7.5,color:"rgba(160,130,200,.45)",fontFamily:"monospace",
+                      overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}
+                      title={selectedObj.src}>
+                      {selectedObj.src.replace(/^https?:\/\//,"").slice(0,30)}…
+                    </div>
+                    {/* Tombol utama: duplikat */}
+                    <button
+                      onClick={()=>duplicateObj(selectedObj.id)}
+                      title="Duplikat object ini — salinan muncul di sebelah kanan (Ctrl+D)"
+                      style={{marginTop:"auto",padding:"5px 0",fontSize:9,
+                        fontFamily:"'Cinzel',serif",letterSpacing:"0.05em",
+                        cursor:"pointer",border:"1.5px solid rgba(100,220,255,.35)",
+                        borderRadius:5,background:"linear-gradient(135deg,#0c2a4a,#1e4976)",
+                        color:"rgba(120,210,255,.95)",
+                        boxShadow:"0 0 8px rgba(60,160,255,.15)",
+                        display:"flex",alignItems:"center",justifyContent:"center",gap:4}}>
+                      <span style={{fontSize:13}}>⧉</span> Duplikat
+                      <span style={{fontSize:7,opacity:.55,marginLeft:2}}>Ctrl+D</span>
+                    </button>
+                  </div>
+                </div>
+
                 <div style={{fontSize:9.5,color:"rgba(200,160,100,.7)",lineHeight:1.8}}>
                   <div>Label: <span style={{color:"rgba(255,200,100,.9)"}}>{selectedObj.label||"(kosong)"}</span></div>
                   <div>X:<b style={{color:"rgba(200,200,255,.8)",fontFamily:"monospace"}}>{Math.round(selectedObj.x/TILE_PX*10)/10}t</b> Y:<b style={{color:"rgba(200,200,255,.8)",fontFamily:"monospace"}}>{Math.round(selectedObj.y/TILE_PX*10)/10}t</b></div>
@@ -1069,12 +1959,90 @@ ${propsCode||"    // (kosong)"}
                     style={{...sBtn(selectedObj.noShadow),fontSize:8.5}}>
                     {selectedObj.noShadow?"✓ No Shadow":"Shadow ON"}
                   </button>
+                  {/* BG Remove toggle — hanya aktif untuk URL Cloudinary */}
+                  <button
+                    onClick={()=>{
+                      if(!isCloudinaryUrl(selectedObj.src))return;
+                      const isBgR=hasBgRemoval(selectedObj.src);
+                      objUpdate(selectedObj.id,{src:applyBgRemoval(selectedObj.src,!isBgR)});
+                    }}
+                    title={isCloudinaryUrl(selectedObj.src)
+                      ?"Toggle hapus background via Cloudinary AI"
+                      :"Hanya tersedia untuk URL Cloudinary"}
+                    style={{...sBtn(hasBgRemoval(selectedObj.src),"#059669"),fontSize:8.5,
+                      opacity:isCloudinaryUrl(selectedObj.src)?1:.35,
+                      cursor:isCloudinaryUrl(selectedObj.src)?"pointer":"not-allowed"}}>
+                    {hasBgRemoval(selectedObj.src)?"✨ BG Removed":"🖼 BG Normal"}
+                  </button>
                   <button onClick={()=>objDelete(selectedObj.id)}
                     style={{...sBtn(),color:"rgba(255,120,80,.9)",fontSize:8.5,flex:1}}>🗑 Hapus</button>
                 </div>
-                {/* zIndex */}
+                {/* Tampilkan URL yang aktif (singkat) */}
+                {isCloudinaryUrl(selectedObj.src)&&(
+                  <div style={{marginTop:4,fontSize:7,color:"rgba(100,180,140,.45)",fontFamily:"monospace",
+                    wordBreak:"break-all",lineHeight:1.4,padding:"3px 5px",
+                    background:"rgba(0,60,30,.12)",borderRadius:3,border:"1px solid rgba(0,120,60,.12)"}}>
+                    {hasBgRemoval(selectedObj.src)?"✨ e_bgremoval aktif":"🖼 BG asli"}
+                  </div>
+                )}
+                {/* ── Priority / Render Order ── */}
                 <div style={{marginTop:7}}>
-                  <div style={{fontSize:8.5,color:"rgba(140,110,190,.5)",marginBottom:3}}>zIndex:</div>
+                  <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:4}}>
+                    <div style={{fontSize:8.5,color:"rgba(180,140,255,.7)",letterSpacing:"0.05em",fontFamily:"'Cinzel',serif",textTransform:"uppercase"}}>
+                      Prioritas Render
+                    </div>
+                    <div style={{fontFamily:"monospace",fontSize:8,color:"rgba(200,170,255,.5)",
+                      background:"rgba(80,40,160,.2)",borderRadius:3,padding:"1px 5px",
+                      border:"1px solid rgba(120,70,210,.2)"}}>
+                      z: {selectedObj.zIndex}
+                    </div>
+                  </div>
+                  {/* Quick: Depan / Belakang */}
+                  <div style={{display:"flex",gap:3,marginBottom:3}}>
+                    <button
+                      onClick={()=>objBringFront(selectedObj.id)}
+                      title="Paling Depan — selalu tampil paling atas semua object"
+                      style={{...sBtn(false,"#7c3aed"),fontSize:8,flex:1,padding:"4px 2px",
+                        background:"linear-gradient(135deg,#3b0764,#6d28d9)",
+                        color:"rgba(216,180,254,.9)",border:"1px solid rgba(140,80,220,.3)"}}>
+                      ⏫ Paling Depan
+                    </button>
+                    <button
+                      onClick={()=>objSendBack(selectedObj.id)}
+                      title="Paling Belakang — tertutup semua object lain"
+                      style={{...sBtn(false,"#1e3a5f"),fontSize:8,flex:1,padding:"4px 2px",
+                        background:"linear-gradient(135deg,#0f172a,#1e3a5f)",
+                        color:"rgba(147,197,253,.8)",border:"1px solid rgba(59,130,246,.2)"}}>
+                      ⏬ Paling Belakang
+                    </button>
+                  </div>
+                  {/* Step: Naik / Turun 1 tingkat */}
+                  <div style={{display:"flex",gap:3,marginBottom:5}}>
+                    <button
+                      onClick={()=>objMoveUp(selectedObj.id)}
+                      title="Naik 1 tingkat — tampil di atas object berikutnya"
+                      style={{flex:1,padding:"5px 2px",fontSize:8.5,fontFamily:"'Cinzel',serif",
+                        cursor:"pointer",border:"1px solid rgba(120,200,120,.25)",borderRadius:5,
+                        background:"linear-gradient(135deg,#052e16,#14532d)",
+                        color:"rgba(134,239,172,.9)",letterSpacing:"0.04em",
+                        boxShadow:"0 0 6px rgba(0,180,80,.15)"}}>
+                      ▲ Naik Tingkat
+                    </button>
+                    <button
+                      onClick={()=>objMoveDown(selectedObj.id)}
+                      title="Turun 1 tingkat — masuk ke belakang object berikutnya"
+                      style={{flex:1,padding:"5px 2px",fontSize:8.5,fontFamily:"'Cinzel',serif",
+                        cursor:"pointer",border:"1px solid rgba(200,80,80,.2)",borderRadius:5,
+                        background:"linear-gradient(135deg,#2d1111,#7f1d1d)",
+                        color:"rgba(252,165,165,.85)",letterSpacing:"0.04em",
+                        boxShadow:"0 0 6px rgba(180,0,0,.12)"}}>
+                      ▼ Turun Tingkat
+                    </button>
+                  </div>
+                  {/* Fine-tune manual */}
+                  <div style={{fontSize:7.5,color:"rgba(120,90,180,.5)",marginBottom:3}}>
+                    Fine-tune zIndex manual:
+                  </div>
                   <input type="number" value={selectedObj.zIndex}
                     onChange={e=>objUpdate(selectedObj.id,{zIndex:+e.target.value})}
                     style={{...sInp,width:"100%"}}/>
@@ -1112,11 +2080,72 @@ ${propsCode||"    // (kosong)"}
                 <h3 style={{...sH,color:"rgba(255,200,80,.85)"}}>➕ Tambah Object</h3>
                 <input placeholder="https://... URL gambar" value={objUrl} onChange={e=>setObjUrl(e.target.value)} style={{...sInp,marginBottom:5}}/>
                 <input placeholder="Label (opsional)" value={objLabel} onChange={e=>setObjLabel(e.target.value)} style={{...sInp,marginBottom:6}}/>
-                {objUrl&&(
-                  <div style={{width:"100%",height:60,marginBottom:6,borderRadius:5,overflow:"hidden",background:"#111",border:"1px solid rgba(140,80,220,.25)"}}>
-                    <img src={objUrl} alt="" style={{width:"100%",height:"100%",objectFit:"contain"}}/>
+
+                {/* ── BG Mode Toggle ── */}
+                <div style={{marginBottom:6}}>
+                  <div style={{fontSize:8,color:"rgba(180,140,255,.6)",marginBottom:4,letterSpacing:"0.08em",fontFamily:"'Cinzel',serif",textTransform:"uppercase"}}>
+                    Mode Background
                   </div>
-                )}
+                  <div style={{display:"flex",gap:4}}>
+                    <button
+                      onClick={()=>setObjBgRemove(false)}
+                      style={{flex:1,padding:"5px 4px",fontSize:9,fontFamily:"'Cinzel',serif",
+                        cursor:"pointer",border:"none",borderRadius:5,letterSpacing:"0.04em",
+                        background:!objBgRemove?"linear-gradient(135deg,#4a2800,#8a5000)":"rgba(20,10,40,.7)",
+                        color:!objBgRemove?"#fcd34d":"rgba(160,120,80,.6)",
+                        boxShadow:!objBgRemove?"0 0 8px rgba(180,100,0,.4)":"none",
+                        outline:!objBgRemove?"1px solid rgba(200,140,0,.4)":"1px solid rgba(100,60,180,.2)"}}>
+                      🖼 Normal BG
+                    </button>
+                    <button
+                      onClick={()=>setObjBgRemove(true)}
+                      disabled={objUrl?!isCloudinaryUrl(objUrl):false}
+                      title={objUrl&&!isCloudinaryUrl(objUrl)?"Hanya berlaku untuk URL Cloudinary":"Hapus background otomatis via Cloudinary AI"}
+                      style={{flex:1,padding:"5px 4px",fontSize:9,fontFamily:"'Cinzel',serif",
+                        cursor:objUrl&&!isCloudinaryUrl(objUrl)?"not-allowed":"pointer",
+                        border:"none",borderRadius:5,letterSpacing:"0.04em",
+                        background:objBgRemove?"linear-gradient(135deg,#0a3a2a,#0d6644)":"rgba(20,10,40,.7)",
+                        color:objBgRemove?"#6ee7b7":objUrl&&!isCloudinaryUrl(objUrl)?"rgba(80,80,80,.5)":"rgba(80,180,140,.6)",
+                        boxShadow:objBgRemove?"0 0 8px rgba(0,180,100,.3)":"none",
+                        outline:objBgRemove?"1px solid rgba(0,200,120,.3)":"1px solid rgba(100,60,180,.2)"}}>
+                      ✨ Transparan BG
+                    </button>
+                  </div>
+                  {/* Non-cloudinary warning */}
+                  {objUrl&&!isCloudinaryUrl(objUrl)&&(
+                    <div style={{marginTop:4,padding:"3px 6px",background:"rgba(120,60,0,.25)",borderRadius:4,
+                      fontSize:8,color:"rgba(255,180,80,.7)",border:"1px solid rgba(180,90,0,.25)"}}>
+                      ⚠ Transparan BG hanya untuk URL Cloudinary
+                    </div>
+                  )}
+                </div>
+
+                {/* ── Preview ── */}
+                {objUrl&&(()=>{
+                  const previewSrc = applyBgRemoval(objUrl, objBgRemove && isCloudinaryUrl(objUrl));
+                  const bgStyle = objBgRemove
+                    ? "repeating-conic-gradient(rgba(150,150,150,.25) 0% 25%, rgba(30,30,30,.25) 0% 50%) 0 0 / 14px 14px"
+                    : "#111";
+                  return (
+                    <div style={{marginBottom:6}}>
+                      <div style={{fontSize:7.5,color:"rgba(150,110,220,.5)",marginBottom:3,letterSpacing:"0.06em",fontFamily:"'Cinzel',serif"}}>
+                        {objBgRemove?"PREVIEW — Transparan (checkerboard = area transparan)":"PREVIEW — Normal"}
+                      </div>
+                      <div style={{width:"100%",height:70,borderRadius:5,overflow:"hidden",
+                        background:bgStyle,border:"1px solid rgba(140,80,220,.25)",display:"flex",alignItems:"center",justifyContent:"center"}}>
+                        <img src={previewSrc} alt="" style={{maxWidth:"100%",maxHeight:"100%",objectFit:"contain"}}/>
+                      </div>
+                      {objBgRemove&&isCloudinaryUrl(objUrl)&&(
+                        <div style={{marginTop:3,fontSize:7.5,color:"rgba(100,200,150,.55)",fontFamily:"monospace",
+                          wordBreak:"break-all",lineHeight:1.4,padding:"3px 5px",
+                          background:"rgba(0,80,40,.15)",borderRadius:3,border:"1px solid rgba(0,150,80,.15)"}}>
+                          {previewSrc}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
                 <button onClick={addObject} style={{width:"100%",padding:"6px 0",fontSize:10.5,fontFamily:"'Cinzel',serif",
                   letterSpacing:"0.06em",cursor:"pointer",border:"none",borderRadius:6,
                   background:objUrl?"linear-gradient(135deg,#7a4a00,#c07a00)":"rgba(60,30,0,.5)",
@@ -1127,21 +2156,65 @@ ${propsCode||"    // (kosong)"}
             {/* ── Objects list ── */}
             {editorReady&&objects.length>0&&(
               <div>
-                <h3 style={sH}>📋 Objects ({objects.length})</h3>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:6}}>
+                  <h3 style={{...sH,marginBottom:0}}>📋 Objects ({objects.length})</h3>
+                  <div style={{fontSize:7,color:"rgba(140,100,200,.4)",letterSpacing:"0.05em"}}>↓ Z rendah · ↑ Z tinggi</div>
+                </div>
                 <div style={{display:"flex",flexDirection:"column",gap:3}}>
-                  {objects.map(o=>(
-                    <button key={o.id} onClick={()=>{setSelectedId(o.id);setTool("select");setActiveLayer("objects");}}
-                      style={{display:"flex",alignItems:"center",gap:6,padding:"4px 6px",
-                        background:selectedId===o.id?"rgba(100,60,0,.5)":"rgba(20,10,40,.4)",
-                        border:`1px solid ${selectedId===o.id?"rgba(200,140,40,.5)":"rgba(100,60,180,.2)"}`,
-                        borderRadius:5,cursor:"pointer",textAlign:"left"}}>
-                      <img src={o.src} alt="" style={{width:22,height:22,objectFit:"contain",borderRadius:3,flexShrink:0,background:"rgba(0,0,0,.4)"}}/>
-                      <div style={{flex:1,overflow:"hidden"}}>
-                        <div style={{fontSize:9.5,color:"rgba(220,190,150,.9)",textOverflow:"ellipsis",overflow:"hidden",whiteSpace:"nowrap"}}>{o.label||"(unlabeled)"}</div>
-                        <div style={{fontSize:8,color:"rgba(150,130,180,.5)",fontFamily:"monospace"}}>{Math.round(o.w/TILE_PX*10)/10}×{Math.round(o.h/TILE_PX*10)/10}t</div>
+                  {[...objects].sort((a,b)=>a.zIndex-b.zIndex).map((o,rank)=>{
+                    const isSelected=selectedId===o.id;
+                    const maxZ=Math.max(...objects.map(x=>x.zIndex));
+                    const minZ=Math.min(...objects.map(x=>x.zIndex));
+                    const pct=maxZ===minZ?100:Math.round(((o.zIndex-minZ)/(maxZ-minZ))*100);
+                    return (
+                      <div key={o.id} style={{display:"flex",alignItems:"stretch",gap:2}}>
+                        {/* Priority step buttons */}
+                        <div style={{display:"flex",flexDirection:"column",gap:2,flexShrink:0}}>
+                          <button onClick={e=>{e.stopPropagation();objMoveUp(o.id);}}
+                            title="Naik 1 tingkat" style={{width:16,flex:1,fontSize:8,padding:0,
+                              background:"rgba(0,80,40,.35)",border:"1px solid rgba(80,180,80,.2)",
+                              borderRadius:3,cursor:"pointer",color:"rgba(134,239,172,.8)",lineHeight:1}}>▲</button>
+                          <button onClick={e=>{e.stopPropagation();objMoveDown(o.id);}}
+                            title="Turun 1 tingkat" style={{width:16,flex:1,fontSize:8,padding:0,
+                              background:"rgba(80,10,10,.35)",border:"1px solid rgba(200,60,60,.2)",
+                              borderRadius:3,cursor:"pointer",color:"rgba(252,165,165,.7)",lineHeight:1}}>▼</button>
+                        </div>
+                        {/* Main item button */}
+                        <button onClick={()=>{setSelectedId(o.id);setTool("select");setActiveLayer("objects");}}
+                          style={{flex:1,display:"flex",alignItems:"center",gap:5,padding:"4px 5px",
+                            background:isSelected?"rgba(100,60,0,.5)":"rgba(20,10,40,.4)",
+                            border:`1px solid ${isSelected?"rgba(200,140,40,.5)":"rgba(100,60,180,.2)"}`,
+                            borderRadius:5,cursor:"pointer",textAlign:"left",minWidth:0}}>
+                          <img src={o.src} alt="" style={{width:20,height:20,objectFit:"contain",borderRadius:3,flexShrink:0,background:"rgba(0,0,0,.5)"}}/>
+                          <div style={{flex:1,overflow:"hidden",minWidth:0}}>
+                            <div style={{fontSize:9,color:"rgba(220,190,150,.9)",textOverflow:"ellipsis",overflow:"hidden",whiteSpace:"nowrap"}}>
+                              {o.label||"(unlabeled)"}
+                            </div>
+                            <div style={{display:"flex",alignItems:"center",gap:4,marginTop:1}}>
+                              {/* Priority bar */}
+                              <div style={{flex:1,height:3,borderRadius:2,background:"rgba(60,30,120,.4)",overflow:"hidden"}}>
+                                <div style={{height:"100%",width:`${pct}%`,borderRadius:2,
+                                  background:`linear-gradient(90deg,rgba(100,60,200,.5),rgba(180,100,255,.8))`}}/>
+                              </div>
+                              <div style={{fontFamily:"monospace",fontSize:7,color:"rgba(160,130,220,.5)",flexShrink:0}}>z{o.zIndex}</div>
+                            </div>
+                          </div>
+                        </button>
+                        {/* ⧉ Duplikat per item */}
+                        <button
+                          onClick={e=>{e.stopPropagation();duplicateObj(o.id);}}
+                          title={`Duplikat "${o.label||"object"}"`}
+                          style={{width:20,flexShrink:0,
+                            background:"rgba(0,40,80,.55)",
+                            border:"1px solid rgba(60,160,255,.28)",
+                            borderRadius:4,cursor:"pointer",
+                            color:"rgba(100,200,255,.9)",fontSize:12,
+                            display:"flex",alignItems:"center",
+                            justifyContent:"center",
+                            padding:0,lineHeight:1}}>⧉</button>
                       </div>
-                    </button>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -1173,6 +2246,32 @@ ${propsCode||"    // (kosong)"}
               <canvas ref={canvasRef} width={mapCols*TILE_PX} height={mapRows*TILE_PX}
                 style={{display:"block",imageRendering:"pixelated",pointerEvents:"none",
                   opacity:layers.ground.visible?(activeLayer==="ground"?1:.45):0,transition:"opacity .2s"}}/>
+
+              {/* ── Phase 4: Image Tile Layer ── */}
+              {layers.ground.visible&&Object.entries(tileImages).map(([key,url])=>{
+                const[kx,ky]=key.split(",").map(Number);
+                const isHover=hoverTile?.x===kx&&hoverTile?.y===ky&&tool==="imgpaint";
+                return(
+                  <div key={key} style={{position:"absolute",left:kx*TILE_PX,top:ky*TILE_PX,
+                    width:TILE_PX,height:TILE_PX,pointerEvents:"none",zIndex:3,
+                    outline:isHover?"1.5px solid rgba(255,80,80,.9)":"none",boxSizing:"border-box"}}>
+                    <img src={url} alt="" draggable={false} style={{width:"100%",height:"100%",
+                      objectFit:"cover",display:"block",imageRendering:"pixelated",
+                      opacity:activeLayer==="ground"?1:.5}}/>
+                    {isHover&&<div style={{position:"absolute",inset:0,background:"rgba(255,80,60,.25)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:18/cam.scale}}>✕</div>}
+                  </div>
+                );
+              })}
+
+              {/* Image tile ghost preview while imgpaint hover */}
+              {tool==="imgpaint"&&selectedTileImg&&hoverTile&&isInMap&&!tileImages[`${hoverTile.x},${hoverTile.y}`]&&(
+                <div style={{position:"absolute",left:hoverTile.x*TILE_PX,top:hoverTile.y*TILE_PX,
+                  width:TILE_PX,height:TILE_PX,pointerEvents:"none",zIndex:4,opacity:.65,
+                  outline:"1.5px dashed rgba(180,255,180,.7)",boxSizing:"border-box"}}>
+                  <img src={selectedTileImg} alt="" draggable={false} style={{width:"100%",height:"100%",
+                    objectFit:"cover",display:"block",imageRendering:"pixelated"}}/>
+                </div>
+              )}
 
               {showGrid&&layers.ground.visible&&(
                 <div style={{position:"absolute",inset:0,pointerEvents:"none",
@@ -1400,6 +2499,7 @@ ${propsCode||"    // (kosong)"}
                   {customBlocked.size>0&&<span style={{color:"rgba(255,100,100,.7)",marginLeft:6}}>🔴{customBlocked.size}</span>}
                   {customAllowed.size>0&&<span style={{color:"rgba(100,255,120,.7)",marginLeft:4}}>🟢{customAllowed.size}</span>}
                   {Object.keys(transitions).length>0&&<span style={{color:"rgba(255,200,60,.7)",marginLeft:4}}>🔀{Object.keys(transitions).length}</span>}
+                  {Object.keys(tileImages).length>0&&<span style={{color:"rgba(120,255,180,.7)",marginLeft:4}}>🖼{Object.keys(tileImages).length}</span>}
                 </span>
                 <button onClick={()=>setMmExpanded(v=>!v)}
                   style={{background:"none",border:"none",cursor:"pointer",fontSize:9,color:"rgba(140,100,200,.6)",padding:0}}>
@@ -1437,6 +2537,14 @@ ${propsCode||"    // (kosong)"}
             <span style={{color:"rgba(255,200,60,.85)"}}>
               🔀 TRANSITION — Klik tile untuk set transisi antar map · {Object.keys(transitions).length} tile
             </span>
+          ):tool==="imgpaint"?(
+            <span style={{color:"rgba(120,255,180,.85)"}}>
+              🖼 IMAGE TILE — {selectedTileImg?"LMB=cat RMB=hapus drag=cat banyak":"⚠ Pilih tile dari library dulu!"} · {Object.keys(tileImages).length} tile di-cat
+            </span>
+          ):tool==="camera"?(
+            <span style={{color:"rgba(125,211,252,.9)"}}>
+              🎥 CAMERA MODE — Klik tahan + geser untuk pan kamera · Scroll=zoom · Tekan [C] untuk aktif
+            </span>
           ):(
             <span style={{color:tool==="paint"?"rgba(180,130,255,.8)":tool==="erase"?"rgba(255,160,80,.8)":"rgba(100,180,255,.8)"}}>
               {tool==="paint"?`🖌 ${TILE_LABEL[paintType]}`:tool==="erase"?"✏ ERASE":"↖ SELECT"}
@@ -1459,10 +2567,248 @@ ${propsCode||"    // (kosong)"}
           {selectedObj&&<><span style={{color:"rgba(80,60,130,.4)"}}>|</span><span style={{color:"rgba(255,200,80,.8)"}}>📦 {selectedObj.label||selectedObj.id}</span></>}
         </>}
         <span style={{flex:1}}/>
-        <span style={{color:"rgba(90,70,140,.4)"}}>[B]=Collision [T]=Transition [1]Ground [2]Objects [G]Snap · Ctrl+Z=undo</span>
+        <span style={{color:"rgba(90,70,140,.4)"}}>[B]=Collision [T]=Transition [I]=ImgTile [1]Ground [2]Objects [G]Snap · Ctrl+Z=undo</span>
         <span style={{color:"rgba(80,60,130,.4)"}}>|</span>
         <span>{zoomPct}%</span>
       </div>
+
+      {/* ════ AUTO SETUP WIZARD ════ */}
+      {showSqlSetup&&(
+        <div style={{position:"fixed",inset:0,zIndex:9100,background:"rgba(0,0,0,.88)",
+          display:"flex",alignItems:"center",justifyContent:"center",animation:"me2FadeIn .18s ease both"}}
+          onClick={()=>{if(setupStatus!=="running")setShowSqlSetup(false);}}>
+          <div style={{width:"min(580px,94vw)",display:"flex",flexDirection:"column",
+            background:"linear-gradient(145deg,rgba(6,2,18,.99),rgba(3,1,10,.99))",
+            border:"1.5px solid rgba(80,180,120,.45)",borderRadius:16,
+            boxShadow:"0 0 80px rgba(40,180,80,.15),0 24px 80px rgba(0,0,0,.9)"}}
+            onClick={e=>e.stopPropagation()}>
+
+            {/* Header */}
+            <div style={{padding:"14px 20px",display:"flex",alignItems:"center",gap:10,
+              borderBottom:"1px solid rgba(80,180,120,.2)"}}>
+              <span style={{fontSize:22}}>🛠</span>
+              <div style={{flex:1}}>
+                <div style={{fontFamily:"'Cinzel',serif",color:"rgba(140,230,170,.95)",fontSize:13,letterSpacing:"0.1em"}}>
+                  Database Setup — Tabel Maps
+                </div>
+                <div style={{fontSize:9,color:"rgba(100,180,120,.55)",marginTop:1}}>
+                  Buat tabel maps di Supabase agar Map Editor bisa menyimpan data permanen
+                </div>
+              </div>
+              {setupStatus!=="running"&&(
+                <button onClick={()=>setShowSqlSetup(false)} style={{...sBtn(),padding:"4px 8px",fontSize:12}}>✕</button>
+              )}
+            </div>
+
+            {/* Body */}
+            <div style={{padding:"18px 20px",display:"flex",flexDirection:"column",gap:14}}>
+
+              {setupStatus==="done" ? (
+                /* ── Success state ── */
+                <div style={{textAlign:"center",padding:"20px 10px"}}>
+                  <div style={{fontSize:44,marginBottom:10}}>✅</div>
+                  <div style={{fontFamily:"'Cinzel',serif",color:"rgba(120,220,160,.95)",fontSize:13,marginBottom:8}}>
+                    Setup Berhasil!
+                  </div>
+                  <div style={{fontSize:10,color:"rgba(140,200,160,.7)",lineHeight:1.8,whiteSpace:"pre-wrap"}}>
+                    {setupMsg}
+                  </div>
+                  <button onClick={()=>{setShowSqlSetup(false);setSetupStatus("idle");setSetupKey("");setSetupMsg("");}}
+                    style={{...sBtn(),marginTop:16,padding:"8px 24px",fontSize:11,
+                      background:"linear-gradient(135deg,#14532d,#166534)",color:"#86efac"}}>
+                    ✓ Tutup & Mulai Simpan
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {/* Pilihan: Auto vs Manual */}
+                  <div style={{background:"rgba(80,180,120,.07)",border:"1px solid rgba(80,180,120,.2)",
+                    borderRadius:9,padding:"12px 14px"}}>
+                    <div style={{fontFamily:"'Cinzel',serif",color:"rgba(140,220,160,.8)",fontSize:10,
+                      letterSpacing:"0.08em",marginBottom:8}}>
+                      🚀 OPSI 1 — AUTO SETUP (Direkomendasikan)
+                    </div>
+                    <div style={{fontSize:9,color:"rgba(160,200,160,.65)",lineHeight:1.7,marginBottom:10}}>
+                      Paste <strong style={{color:"rgba(200,230,200,.8)"}}>Personal Access Token (PAT)</strong> dari akun Supabase kamu.<br/>
+                      PAT berbeda dari Service Role Key — ambil di:<br/>
+                      <span style={{color:"rgba(120,200,255,.7)"}}>supabase.com/dashboard/account/tokens</span>
+                    </div>
+                    <div style={{display:"flex",gap:7,alignItems:"center",marginBottom:8}}>
+                      <input
+                        type="password"
+                        placeholder="sbp_xxxxxxxxxxxx (Personal Access Token)"
+                        value={setupKey}
+                        onChange={e=>setSetupKey(e.target.value)}
+                        disabled={setupStatus==="running"}
+                        style={{...sInp,flex:1,fontSize:10}}
+                      />
+                      <button
+                        onClick={doAutoSetup}
+                        disabled={setupStatus==="running"||!setupKey.trim()}
+                        style={{...sBtn(),padding:"5px 12px",fontSize:10,flexShrink:0,
+                          background:setupStatus==="running"?"rgba(30,15,60,.7)":"linear-gradient(135deg,#14532d,#166534)",
+                          color:setupStatus==="running"?"rgba(140,200,140,.4)":"#86efac",
+                          cursor:setupStatus==="running"||!setupKey.trim()?"not-allowed":"pointer"}}>
+                        {setupStatus==="running"?"⏳ Membuat…":"⚡ Auto Create"}
+                      </button>
+                    </div>
+                    {/* Status message */}
+                    {setupMsg&&setupStatus==="error"&&(
+                      <div style={{fontSize:9,color:"rgba(255,150,150,.85)",background:"rgba(200,50,50,.1)",
+                        border:"1px solid rgba(255,100,100,.2)",borderRadius:6,padding:"8px 10px",
+                        lineHeight:1.7,whiteSpace:"pre-wrap"}}>
+                        {setupMsg}
+                      </div>
+                    )}
+                    <a href="https://supabase.com/dashboard/account/tokens" target="_blank" rel="noopener noreferrer"
+                      style={{display:"inline-block",marginTop:4,fontSize:8.5,color:"rgba(120,180,255,.6)",textDecoration:"none"}}>
+                      → Buka halaman Personal Access Tokens ↗
+                    </a>
+                  </div>
+
+                  {/* Divider */}
+                  <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <div style={{flex:1,height:1,background:"rgba(120,80,200,.15)"}}/>
+                    <span style={{fontSize:9,color:"rgba(120,100,160,.4)"}}>atau lakukan manual</span>
+                    <div style={{flex:1,height:1,background:"rgba(120,80,200,.15)"}}/>
+                  </div>
+
+                  {/* Manual fallback */}
+                  <div style={{background:"rgba(80,50,180,.06)",border:"1px solid rgba(100,70,200,.2)",
+                    borderRadius:9,padding:"12px 14px"}}>
+                    <div style={{fontFamily:"'Cinzel',serif",color:"rgba(180,150,255,.7)",fontSize:10,
+                      letterSpacing:"0.08em",marginBottom:8}}>
+                      📋 OPSI 2 — MANUAL (SQL Editor)
+                    </div>
+                    <div style={{fontSize:9,color:"rgba(160,140,200,.55)",lineHeight:1.7,marginBottom:10}}>
+                      Buka <strong style={{color:"rgba(180,160,255,.75)"}}>Supabase Dashboard → SQL Editor → New query</strong>,
+                      paste SQL di bawah ini, lalu klik Run.
+                    </div>
+                    <div style={{display:"flex",gap:6,marginBottom:8}}>
+                      <button onClick={()=>copyToClipboard(MAPS_SETUP_SQL)}
+                        style={{...sBtn(),fontSize:9,background:"linear-gradient(135deg,#1e3a8a,#1d4ed8)",color:"#bfdbfe"}}>
+                        📋 Salin SQL Setup
+                      </button>
+                      <a href={`https://supabase.com/dashboard/project/${SUPABASE_PROJECT_ID}/editor`} target="_blank" rel="noopener noreferrer"
+                        style={{...sBtn(),fontSize:9,textDecoration:"none",display:"inline-block",
+                          background:"rgba(30,15,60,.8)",color:"rgba(160,130,255,.75)"}}>
+                        🔗 Buka SQL Editor Project Ini
+                      </a>
+                    </div>
+                    <pre className="me2-scroll" style={{maxHeight:120,overflowY:"auto",margin:0,
+                      fontSize:9,lineHeight:1.55,fontFamily:"monospace",padding:"8px 10px",
+                      color:"rgba(140,200,140,.7)",background:"rgba(0,0,0,.4)",
+                      borderRadius:6,border:"1px solid rgba(80,180,120,.15)",whiteSpace:"pre-wrap"}}>
+                      {MAPS_SETUP_SQL}
+                    </pre>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ════ DB DIAGNOSTICS MODAL ════ */}
+      {showDiag&&(
+        <div style={{position:"fixed",inset:0,zIndex:9200,background:"rgba(0,0,0,.88)",
+          display:"flex",alignItems:"center",justifyContent:"center"}}
+          onClick={()=>{if(!diagRunning)setShowDiag(false);}}>
+          <div style={{width:"min(600px,94vw)",maxHeight:"88vh",display:"flex",flexDirection:"column",
+            background:"linear-gradient(145deg,rgba(4,1,14,.99),rgba(2,1,8,.99))",
+            border:"1.5px solid rgba(100,200,120,.35)",borderRadius:16,
+            boxShadow:"0 0 80px rgba(40,200,80,.1),0 24px 80px rgba(0,0,0,.9)"}}
+            onClick={e=>e.stopPropagation()}>
+
+            {/* Header */}
+            <div style={{padding:"14px 20px",display:"flex",alignItems:"center",gap:10,
+              borderBottom:"1px solid rgba(100,200,120,.18)"}}>
+              <span style={{fontSize:22}}>🔬</span>
+              <div style={{flex:1}}>
+                <div style={{fontFamily:"'Cinzel',serif",color:"rgba(140,230,170,.95)",fontSize:13,letterSpacing:"0.08em"}}>
+                  Diagnosa Koneksi Database
+                </div>
+                <div style={{fontSize:9,color:"rgba(100,180,120,.5)",marginTop:1}}>
+                  Test step-by-step: client → network → tabel → RLS policy
+                </div>
+              </div>
+              {!diagRunning&&(
+                <button onClick={()=>setShowDiag(false)} style={{...sBtn(),padding:"4px 8px",fontSize:12}}>✕</button>
+              )}
+            </div>
+
+            {/* Body */}
+            <div style={{padding:"16px 20px",display:"flex",flexDirection:"column",gap:10,overflowY:"auto"}} className="me2-scroll">
+
+              {/* Run button */}
+              <button onClick={doDiagnose} disabled={diagRunning}
+                style={{...sBtn(),padding:"8px 18px",fontSize:11,alignSelf:"flex-start",
+                  background:diagRunning?"rgba(20,10,40,.7)":"linear-gradient(135deg,#14532d,#166534)",
+                  color:diagRunning?"rgba(140,200,140,.4)":"#86efac",
+                  cursor:diagRunning?"not-allowed":"pointer"}}>
+                {diagRunning ? "⏳ Menjalankan tes…" : diagSteps.length > 0 ? "🔄 Jalankan Ulang" : "▶ Jalankan Diagnosa"}
+              </button>
+
+              {/* Results */}
+              {diagSteps.length === 0 && !diagRunning && (
+                <div style={{fontSize:10,color:"rgba(120,160,120,.5)",fontStyle:"italic",padding:"8px 0"}}>
+                  Klik tombol di atas untuk mulai diagnosa. Proses berlangsung ~2–5 detik.
+                </div>
+              )}
+
+              {diagSteps.map((step, i) => {
+                const colors = {
+                  ok:   { bg:"rgba(20,80,40,.3)",  border:"rgba(80,180,80,.25)",  icon:"✅", text:"rgba(140,240,140,.9)" },
+                  fail: { bg:"rgba(80,15,15,.4)",   border:"rgba(200,60,60,.3)",   icon:"❌", text:"rgba(255,150,150,.9)" },
+                  warn: { bg:"rgba(60,50,10,.35)",  border:"rgba(200,160,40,.25)", icon:"⚠️", text:"rgba(240,200,80,.9)"  },
+                  pending: { bg:"rgba(10,10,30,.3)", border:"rgba(80,80,160,.2)", icon:"⏳", text:"rgba(160,160,255,.7)" },
+                };
+                const c = colors[step.status];
+                return (
+                  <div key={i} style={{background:c.bg,border:`1px solid ${c.border}`,borderRadius:8,padding:"10px 12px"}}>
+                    <div style={{display:"flex",alignItems:"center",gap:7,marginBottom:step.detail?5:0}}>
+                      <span style={{fontSize:14}}>{c.icon}</span>
+                      <span style={{fontFamily:"'Cinzel',serif",fontSize:10,color:c.text,letterSpacing:"0.05em"}}>
+                        {step.label}
+                      </span>
+                    </div>
+                    {step.detail&&(
+                      <pre style={{margin:0,fontSize:9,color:"rgba(200,220,200,.65)",lineHeight:1.7,
+                        whiteSpace:"pre-wrap",wordBreak:"break-word",fontFamily:"monospace",
+                        paddingLeft:21}}>
+                        {step.detail}
+                      </pre>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Action shortcuts setelah diagnosa */}
+              {diagSteps.length > 0 && !diagRunning && (
+                <div style={{marginTop:4,paddingTop:10,borderTop:"1px solid rgba(100,180,100,.1)",
+                  display:"flex",gap:8,flexWrap:"wrap"}}>
+                  <button onClick={()=>{setShowDiag(false);setShowSqlSetup(true);}}
+                    style={{...sBtn(),fontSize:9,padding:"5px 10px",
+                      background:"linear-gradient(135deg,#14532d,#166534)",color:"#86efac"}}>
+                    🛠 Buka Setup Wizard
+                  </button>
+                  <a href={`https://supabase.com/dashboard/project/${SUPABASE_PROJECT_ID}/editor`}
+                    target="_blank" rel="noopener noreferrer"
+                    style={{...sBtn(),fontSize:9,padding:"5px 10px",textDecoration:"none",display:"inline-block",
+                      background:"rgba(30,15,60,.8)",color:"rgba(160,130,255,.75)"}}>
+                    🔗 SQL Editor Project Ini
+                  </a>
+                  <button onClick={()=>copyToClipboard(MAPS_SETUP_SQL)}
+                    style={{...sBtn(),fontSize:9,padding:"5px 10px",
+                      background:"linear-gradient(135deg,#1e3a8a,#1d4ed8)",color:"#bfdbfe"}}>
+                    📋 Salin SQL Setup
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ════ EXPORT + DEPLOY GUIDE MODAL ════ */}
       {showExport&&(
@@ -1481,11 +2827,11 @@ ${propsCode||"    // (kosong)"}
                 📋 Export Code + Panduan Deploy
               </span>
               <div style={{display:"flex",gap:6}}>
-                <button onClick={()=>navigator.clipboard.writeText(exportCode.replace(/^\/\/[^\n]*\n/gm,"").trim())}
+                <button onClick={()=>copyToClipboard(exportCode.replace(/^\/\/[^\n]*\n/gm,"").trim())}
                   style={{...sBtn(),background:"linear-gradient(135deg,#14532d,#166534)",color:"#86efac"}}>
                   📋 Salin Kode Saja
                 </button>
-                <button onClick={()=>navigator.clipboard.writeText(exportCode)}
+                <button onClick={()=>copyToClipboard(exportCode)}
                   style={{...sBtn(),background:"linear-gradient(135deg,#1e3a8a,#1d4ed8)",color:"#bfdbfe"}}>
                   📋 Salin + Panduan
                 </button>
